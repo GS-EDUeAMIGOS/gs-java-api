@@ -1,0 +1,22 @@
+# Arquivos locais, credenciais e IDEs
+.env
+.env.*
+!.env.example
+*.local.*
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Artefatos específicos da área
+target/
+build/
+.gradle/
+*.class
+*.iml
+.project
+.classpath
+.settings/
+hs_err_pid*
+replay_pid*
+application-local.*
