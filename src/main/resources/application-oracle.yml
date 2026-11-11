@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: ${ORACLE_DB_URL:jdbc:oracle:thin:@oracle.fiap.com.br:1521:ORCL}
+    driver-class-name: oracle.jdbc.OracleDriver
+    username: ${ORACLE_DB_USERNAME}
+    password: ${ORACLE_DB_PASSWORD}
+  h2:
+    console:
+      enabled: false
+  jpa:
+    database-platform: org.hibernate.dialect.OracleDialect
+    hibernate:
+      # CUIDADO: Em ambiente Oracle compartilhado/final, manter validate ou none. Nunca usar create/create-drop.
+      ddl-auto: ${ORACLE_DDL_AUTO:validate}
+    show-sql: false

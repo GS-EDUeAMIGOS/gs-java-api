@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: viacidada-api
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:h2}
+  cache:
+    type: simple
+  jpa:
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+viacidada:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:dmlhY2lkYWRhLsecret-key-global-solution-fiap-2026-citizentech-256bits}
+      expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+  sptrans:
+    base-url: ${SPTRANS_BASE_URL:https://api.olhovivo.sptrans.com.br/v2.1}
+    token: ${SPTRANS_TOKEN:de5fcb1e032720e2413d5c6d4af4b94f83443b54b2c713e43140eaafe4bfafb4}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,caches
+  endpoint:
+    health:
+      show-details: when_authorized
