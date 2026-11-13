@@ -1,9 +1,13 @@
 spring:
   datasource:
     url: ${ORACLE_DB_URL:jdbc:oracle:thin:@oracle.fiap.com.br:1521:ORCL}
-    driver-class-name: oracle.jdbc.OracleDriver
+    driver-class-name: ${ORACLE_DB_DRIVER:oracle.jdbc.OracleDriver}
     username: ${ORACLE_DB_USERNAME}
     password: ${ORACLE_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${ORACLE_POOL_MAX_SIZE:5}
+      minimum-idle: ${ORACLE_POOL_MIN_IDLE:1}
+      connection-timeout: ${ORACLE_CONNECTION_TIMEOUT_MS:20000}
   h2:
     console:
       enabled: false
@@ -12,4 +16,5 @@ spring:
     hibernate:
       # CUIDADO: Em ambiente Oracle compartilhado/final, manter validate ou none. Nunca usar create/create-drop.
       ddl-auto: ${ORACLE_DDL_AUTO:validate}
-    show-sql: false
+    show-sql: ${ORACLE_SHOW_SQL:false}
+
