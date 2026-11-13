@@ -57,6 +57,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,
                                 "/api/linhas/**",
                                 "/api/paradas/**",
+                                "/api/locais/**",
+                                "/api/rotas/**",
                                 "/api/ocorrencias/**"
                         ).permitAll()
                         .anyRequest().authenticated()

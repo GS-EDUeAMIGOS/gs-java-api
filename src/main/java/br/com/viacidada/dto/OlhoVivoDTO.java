@@ -186,4 +186,98 @@ public final class OlhoVivoDTO {
         @JsonProperty("p")
         private ParadaComPrevisoes parada;
     }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class LocalResolvido {
+        private String termoOriginal;
+        private String nomeLocal;
+        private String enderecoCompleto;
+        private String logradouro;
+        private String bairro;
+        private String termoBuscaSptrans;
+        private List<String> termosCandidatosSptrans;
+        private Double latitude;
+        private Double longitude;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ParadasProximasGpsResponse {
+        private LocalResolvido localAtual;
+        private ParadaResumo paradaMaisProxima;
+        private Integer distanciaAtePontoMaisProximoMetros;
+        private Integer tempoCaminhadaMinutos;
+        private Boolean usuarioEstaNoPonto;
+        private String mensagemProximidade;
+        private List<ParadaResumo> paradasProximas;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PassoRota {
+        private Integer ordem;
+        private String tipoPasso;
+        private String instrucao;
+        private String local;
+        private Integer distanciaCaminhadaMetros;
+        private Integer tempoCaminhadaMinutos;
+        private Long codigoParada;
+        private String nomeParada;
+        private String enderecoParada;
+        private Double latitudeParada;
+        private Double longitudeParada;
+        private Boolean pontoConfirmadoNaParada;
+        private Integer codigoLinha;
+        private String letreiroCompleto;
+        private String descricaoSentido;
+        private Integer veiculosCirculando;
+        private Integer veiculosAcessiveisPcD;
+        private String proximoPrefixo;
+        private Double latitudeProximoVeiculo;
+        private Double longitudeProximoVeiculo;
+        private String previsaoChegada;
+        private Integer ocorrenciasAbertas;
+        private String alertaComunidade;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OpcaoRota {
+        private String titulo;
+        private String tipoRota;
+        private Boolean recomendada;
+        private String motivoRecomendacao;
+        private Integer totalOnibusNecessarios;
+        private Integer tempoEstimadoMinutos;
+        private Boolean totalmenteAcessivelPcD;
+        private Integer totalOcorrenciasNoTrajeto;
+        private List<PassoRota> passos;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RotaPlanejadaResponse {
+        private String origemBuscada;
+        private String destinoBuscado;
+        private String horarioConsulta;
+        private LocalResolvido localOrigemResolvido;
+        private LocalResolvido localDestinoResolvido;
+        private Integer distanciaCaminhadaOrigemMetros;
+        private Integer distanciaCaminhadaDestinoMetros;
+        private ParadaResumo paradaOrigemSugerida;
+        private ParadaResumo paradaDestinoSugerida;
+        private List<ParadaResumo> paradasProximasOrigem;
+        private List<OpcaoRota> opcoes;
+    }
 }
