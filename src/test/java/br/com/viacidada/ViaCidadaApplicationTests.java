@@ -87,4 +87,14 @@ class ViaCidadaApplicationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].tipo").value("ELEVADOR_INOPERANTE"));
     }
+
+    @Test
+    @DisplayName("Deve expor endpoint publico de planejamento de rotas estilo Moovit (/api/rotas/planejar)")
+    void deveExporEndpointPlanejarRotaPublicamente() throws Exception {
+        mockMvc.perform(get("/api/rotas/planejar")
+                        .param("origem", "LAPA")
+                        .param("destino", "PAULISTA"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.message").value("Variavel de ambiente SPTRANS_TOKEN nao configurada."));
+    }
 }

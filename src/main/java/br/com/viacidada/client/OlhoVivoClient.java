@@ -123,6 +123,25 @@ public class OlhoVivoClient {
         }
     }
 
+    public List<OlhoVivoDTO.ParadaResumo> buscarParadasPorLinha(Integer codigoLinha) {
+        try {
+            garantirSessao();
+            List<OlhoVivoDTO.ParadaResumo> resultado = restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/Parada/BuscarParadasPorLinha")
+                            .queryParam("codigoLinha", codigoLinha)
+                            .build())
+                    .header(HttpHeaders.COOKIE, sessionCookie)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+            return resultado != null ? resultado : List.of();
+        } catch (ExternalIntegrationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new ExternalIntegrationException("Erro ao consultar paradas da linha na API Olho Vivo: " + ex.getMessage(), ex);
+        }
+    }
+
     public OlhoVivoDTO.PrevisaoParadaResponse buscarPrevisoesPorParada(Long codigoParada) {
         try {
             garantirSessao();
