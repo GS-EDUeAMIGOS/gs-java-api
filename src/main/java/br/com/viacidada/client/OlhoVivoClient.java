@@ -6,7 +6,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -24,7 +26,11 @@ public class OlhoVivoClient {
             @Value("${viacidada.sptrans.base-url}") String baseUrl,
             @Value("${viacidada.sptrans.token:}") String token
     ) {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(10000);
+        requestFactory.setReadTimeout(15000);
         this.restClient = RestClient.builder()
+                .requestFactory(requestFactory)
                 .baseUrl(baseUrl)
                 .build();
         this.token = token != null ? token.trim() : "";
@@ -41,6 +47,8 @@ public class OlhoVivoClient {
                             .path("/Login/Autenticar")
                             .queryParam("token", token)
                             .build())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new byte[0])
                     .retrieve()
                     .toEntity(Boolean.class);
 
