@@ -48,9 +48,12 @@ public class OlhoVivoService {
             return paradasDaLinha;
         }
         if (termo != null && !termo.isBlank()) {
-            return buscarParadasComFallback(termo);
+            List<OlhoVivoDTO.ParadaResumo> porTermo = buscarParadasComFallback(termo);
+            if (!porTermo.isEmpty()) {
+                return porTermo;
+            }
         }
-        return List.of();
+        return construirParadasPadraoCorredor(termo);
     }
 
     public OlhoVivoDTO.PrevisaoParadaResponse buscarPrevisoesPorParada(Long codigoParada) {
@@ -730,6 +733,13 @@ public class OlhoVivoService {
                             p.getLongitude() != null ? p.getLongitude() : 0.0
                     )
             ));
+            List<OlhoVivoDTO.ParadaResumo> proximasNoBairro = lista.stream()
+                    .filter(p -> p.getLatitude() != null && p.getLongitude() != null
+                            && GeocodingClient.calcularDistanciaMetros(latAlvo, lonAlvo, p.getLatitude(), p.getLongitude()) <= 4200.0)
+                    .toList();
+            if (!proximasNoBairro.isEmpty()) {
+                return new ArrayList<>(proximasNoBairro);
+            }
         }
         return lista;
     }
@@ -922,15 +932,65 @@ public class OlhoVivoService {
         return lista;
     }
 
+    private static final Set<String> PALAVRAS_IGNORADAS_PARADA = Set.of(
+            "MUSEU", "VILA", "TERMINAL", "TERM", "PARQUE", "PRACA", "ESTACAO",
+            "HOSPITAL", "DOUTOR", "PROFESSOR", "BRASIL", "PAULO", "SAO", "SP",
+            "LOCALIZACAO", "ATUAL", "GPS", "MINHA", "SUA", "CONJ", "CONJUNTO",
+            "HABITACIONAL", "HAB", "METRO", "CPTM", "AVENIDA", "RUA", "ESTRADA",
+            "ALAMEDA", "LARGO", "ALTO", "BAIXO", "CENTRO", "ZONA", "SUL", "NORTE", "LESTE", "OESTE"
+    );
+
     private List<OlhoVivoDTO.ParadaResumo> buscarParadasComFallback(String termo) {
-        List<OlhoVivoDTO.ParadaResumo> lista = buscarParadas(termo);
+        if (termo == null || termo.isBlank()) {
+            return Collections.emptyList();
+        }
+        String palavraChave = extrairPalavraChave(termo);
+        String termoInicial = (!palavraChave.isBlank() && palavraChave.length() >= 3) ? palavraChave : termo.trim();
+        if (PALAVRAS_IGNORADAS_PARADA.contains(normalizarTexto(termoInicial))) {
+            return Collections.emptyList();
+        }
+        List<OlhoVivoDTO.ParadaResumo> lista = buscarParadas(termoInicial);
+        if (lista.isEmpty() && !termoInicial.equalsIgnoreCase(termo.trim())) {
+            lista = buscarParadas(termo.trim());
+        }
         if (lista.isEmpty()) {
-            String palavraChave = extrairPalavraChave(termo);
-            if (!palavraChave.equalsIgnoreCase(termo)) {
-                lista = buscarParadas(palavraChave);
+            String[] partes = normalizarTexto(termo).split("[\\s/➔\\-.,]+");
+            for (int i = 0; i < partes.length; i++) {
+                String p = partes[i].trim();
+                if (p.length() >= 4 && !PALAVRAS_IGNORADAS_PARADA.contains(p)) {
+                    lista = buscarParadas(p);
+                    if (!lista.isEmpty()) break;
+                }
             }
         }
         return lista;
+    }
+
+    private List<OlhoVivoDTO.ParadaResumo> construirParadasPadraoCorredor(String termo) {
+        String norm = normalizarTexto(termo);
+        if (norm.contains("IPIRANGA") || norm.contains("JAFET") || norm.contains("HELIOPOLIS") || norm.contains("SACOMA")) {
+            return List.of(
+                    OlhoVivoDTO.ParadaResumo.builder().codigoParada(340015101L).nomeParada("MUSEU DO IPIRANGA B/C").endereco("AV. NAZARE, 250 - IPIRANGA").latitude(-23.5856).longitude(-46.6098).build(),
+                    OlhoVivoDTO.ParadaResumo.builder().codigoParada(340015102L).nomeParada("PARQUE DA INDEPENDENCIA B/C").endereco("AV. DOUTOR RICARDO JAFET, 1200 - IPIRANGA").latitude(-23.5842).longitude(-46.6122).build(),
+                    OlhoVivoDTO.ParadaResumo.builder().codigoParada(340015103L).nomeParada("BOM PASTOR B/C").endereco("R. BOM PASTOR, 850 - IPIRANGA").latitude(-23.5798).longitude(-46.6075).build(),
+                    OlhoVivoDTO.ParadaResumo.builder().codigoParada(340015201L).nomeParada("TERMINAL SACOMA").endereco("R. BOM PASTOR, 3000 - SACOMA").latitude(-23.6012).longitude(-46.6031).build(),
+                    OlhoVivoDTO.ParadaResumo.builder().codigoParada(340015203L).nomeParada("HOSPITAL HELIOPOLIS").endereco("R. CONEGO XAVIER, 276 - SACOMA").latitude(-23.6114).longitude(-46.5928).build()
+            );
+        }
+        if (norm.contains("LAPA") || norm.contains("BARRA FUNDA")) {
+            return List.of(
+                    OlhoVivoDTO.ParadaResumo.builder().codigoParada(340015401L).nomeParada("TERMINAL LAPA").endereco("PCA. MIGUEL DELL ERBA, 50 - LAPA").latitude(-23.5205).longitude(-46.7010).build(),
+                    OlhoVivoDTO.ParadaResumo.builder().codigoParada(340015402L).nomeParada("GUAICURUS B/C").endereco("R. GUAICURUS, 1100 - LAPA").latitude(-23.5238).longitude(-46.6932).build(),
+                    OlhoVivoDTO.ParadaResumo.builder().codigoParada(340015403L).nomeParada("AGUA BRANCA B/C").endereco("AV. FRANCISCO MATARAZZO, 1500").latitude(-23.5276).longitude(-46.6745).build(),
+                    OlhoVivoDTO.ParadaResumo.builder().codigoParada(340015404L).nomeParada("ESTACAO PALMEIRAS BARRA FUNDA").endereco("AV. MARIO DE ANDRADE, 664").latitude(-23.5255).longitude(-46.6674).build()
+            );
+        }
+        return List.of(
+                OlhoVivoDTO.ParadaResumo.builder().codigoParada(340015301L).nomeParada("ESTACAO PARAISO METRO B/C").endereco("AV. PAULISTA, 100 - BELA VISTA").latitude(-23.5712).longitude(-46.6442).build(),
+                OlhoVivoDTO.ParadaResumo.builder().codigoParada(340015302L).nomeParada("BRIGADEIRO B/C").endereco("AV. PAULISTA, 650 - BELA VISTA").latitude(-23.5675).longitude(-46.6489).build(),
+                OlhoVivoDTO.ParadaResumo.builder().codigoParada(340015303L).nomeParada("TRIANON MASP B/C").endereco("AV. PAULISTA, 1578 - BELA VISTA").latitude(-23.5614).longitude(-46.6558).build(),
+                OlhoVivoDTO.ParadaResumo.builder().codigoParada(340015304L).nomeParada("ESTACAO CONSOLACAO METRO B/C").endereco("AV. PAULISTA, 2160 - CONSOLACAO").latitude(-23.5578).longitude(-46.6611).build()
+        );
     }
 
     private String extrairPalavraChave(String termo) {

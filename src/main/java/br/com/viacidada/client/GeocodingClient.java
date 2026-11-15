@@ -245,28 +245,25 @@ public class GeocodingClient {
         // 1. Se o usuario digitou algo como "extra ricardo jafet" ou "hospital heliopolis",
         // extrai a via/referencia limpa (ex.: "RICARDO JAFET", "HELIOPOLIS")
         String termoUsuarioLimpo = limparTermoParaSptrans(termoOriginal);
-        if (!termoUsuarioLimpo.isBlank()
-                && !termoUsuarioLimpo.equalsIgnoreCase("SUA LOCALIZACAO ATUAL")
-                && !termoUsuarioLimpo.equalsIgnoreCase("MINHA LOCALIZACAO")
-                && termoUsuarioLimpo.length() >= 3) {
+        if (isTermoSptransValido(termoUsuarioLimpo)) {
             set.add(termoUsuarioLimpo);
         }
 
         // 2. Logradouro oficial (ex.: "Avenida Doutor Ricardo Jafet" -> "RICARDO JAFET", "Rua Eiras Garcia" -> "EIRAS GARCIA")
         String ruaLimpa = limparTermoParaSptrans(road);
-        if (ruaLimpa.length() >= 3) {
+        if (isTermoSptransValido(ruaLimpa)) {
             set.add(ruaLimpa);
         }
 
         // 3. Distrito oficial de Sao Paulo (ex.: "Ipiranga", "Sacomã", "Cambuci", "Vila Mariana", "Pinheiros")
         String distritoLimpo = limparTermoParaSptrans(district);
-        if (distritoLimpo.length() >= 3) {
+        if (isTermoSptransValido(distritoLimpo)) {
             set.add(distritoLimpo);
         }
 
         // 4. Sub-bairro / Vila (ex.: "Vila Dom Pedro I" -> "VILA DOM PEDRO", "Cerqueira César")
         String suburbLimpo = limparTermoParaSptrans(suburb);
-        if (suburbLimpo.length() >= 3) {
+        if (isTermoSptransValido(suburbLimpo)) {
             set.add(suburbLimpo);
         }
 
@@ -449,25 +446,41 @@ public class GeocodingClient {
     }
 
     /**
-     * Remove prefixos de tipo de via e palavras de estabelecimentos comerciais ("extra", "supermercado",
-     * "hospital", "shopping", "doutor", "dr", etc.) para sobrar apenas o nome que a SPTrans usa!
+     * Remove prefixos de tipo de via, palavras de estabelecimentos comerciais ("extra", "supermercado",
+     * "hospital", "shopping", "doutor", "dr", etc.) e termos geograficos genericos ("Brasil", "Sao Paulo", "GPS")
+     * para sobrar apenas o nome real da rua/bairro que a SPTrans usa!
      * Exemplo: "Extra Ricardo Jafet" -> "RICARDO JAFET"
      * Exemplo: "Avenida Doutor Ricardo Jafet" -> "RICARDO JAFET"
      */
     public String limparTermoParaSptrans(String texto) {
         if (texto == null) return "";
         String norm = normalizar(texto);
-        // Remove parenteses como "(ENTRADA ESTACIONAMENTO)"
+        // Remove parenteses como "(ENTRADA ESTACIONAMENTO)" ou "(GPS)"
         norm = norm.replaceAll("\\([^)]*\\)", " ");
-        // Remove prefixos e palavras de comercios/instituicoes
+        // Remove CEPs e numeros isolados
+        norm = norm.replaceAll("\\b\\d{5}-?\\d{3}\\b", " ");
+        // Remove prefixos, comercios e palavras genericas como BRASIL / SAO PAULO / GPS
         norm = norm.replaceAll(
-                "\\b(AV|AVENIDA|RUA|R|PRACA|PCA|TERMINAL|TERM|PARQUE|PQ|ESTACAO|METRO|HOSPITAL|HOSP|CLINICA|SHOPPING|SHOP|EXTRA|CARREFOUR|ASSAI|ATACADAO|SUPERMERCADO|MERCADO|HIPERMERCADO|FACULDADE|UNIVERSIDADE|ESCOLA|COLEGIO|DOUTOR|DR|DOUTORA|DRA|PROFESSOR|PROF|BRIGADEIRO|BRIG|ENGENHEIRO|ENG|CORONEL|CEL|PADRE|PE|DOM|DONA|ENTRADA|ESTACIONAMENTO|UNIDADE|CAMPUS)\\b",
+                "\\b(AV|AVENIDA|RUA|R|PRACA|PCA|TERMINAL|TERM|PARQUE|PQ|ESTACAO|METRO|CPTM|HOSPITAL|HOSP|CLINICA|SHOPPING|SHOP|EXTRA|CARREFOUR|ASSAI|ATACADAO|SUPERMERCADO|MERCADO|HIPERMERCADO|FACULDADE|UNIVERSIDADE|ESCOLA|COLEGIO|DOUTOR|DR|DOUTORA|DRA|PROFESSOR|PROF|BRIGADEIRO|BRIG|ENGENHEIRO|ENG|CORONEL|CEL|PADRE|PE|DOM|DONA|ENTRADA|ESTACIONAMENTO|UNIDADE|CAMPUS|SAO PAULO|SAO|PAULO|BRASIL|SP|SUA|MINHA|LOCALIZACAO|ATUAL|GPS|REGIAO|METROPOLITANA|MUNICIPIO|ESTADO|ZONA|SUL|NORTE|LESTE|OESTE|CENTRO)\\b",
                 " "
         );
-        // Remove algarismos romanos soltos no final como "VILA DOM PEDRO I" -> "VILA DOM PEDRO"
+        // Remove pontuacao residual e algarismos romanos soltos no final como "VILA DOM PEDRO I" -> "VILA DOM PEDRO"
+        norm = norm.replaceAll("[,.;:/\\-]+", " ");
         norm = norm.replaceAll("\\b(I|II|III|IV|V)\\b$", " ");
         norm = norm.replaceAll("\\s+", " ").trim();
-        return norm.isEmpty() ? normalizar(texto) : norm;
+        return norm;
+    }
+
+    public boolean isTermoSptransValido(String termo) {
+        if (termo == null || termo.isBlank() || termo.length() < 3) {
+            return false;
+        }
+        String norm = normalizar(termo);
+        return !Set.of(
+                "BRASIL", "SAO PAULO", "PAULO", "SAO", "SP", "GPS",
+                "LOCALIZACAO", "ATUAL", "SUA LOCALIZACAO", "MINHA LOCALIZACAO",
+                "SUA LOCALIZACAO ATUAL", "MINHA LOCALIZACAO ATUAL", "CENTRO", "ZONA SUL", "ZONA NORTE", "ZONA LESTE", "ZONA OESTE"
+        ).contains(norm);
     }
 
     private String normalizar(String texto) {
