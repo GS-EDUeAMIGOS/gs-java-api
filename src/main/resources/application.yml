@@ -23,7 +23,7 @@ viacidada:
       allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
   sptrans:
     base-url: ${SPTRANS_BASE_URL:https://api.olhovivo.sptrans.com.br/v2.1}
-    token: ${SPTRANS_TOKEN:de5fcb1e032720e2413d5c6d4af4b94f83443b54b2c713e43140eaafe4bfafb4}
+    token: ${SPTRANS_TOKEN:}
 
 springdoc:
   api-docs:
@@ -40,4 +40,13 @@ management:
         include: health,info,metrics,caches
   endpoint:
     health:
-      show-details: when_authorized
+      show-details: always
+  info:
+    env:
+      enabled: true
+
+info:
+  app:
+    name: ViaCidada API
+    description: API RESTful CitizenTech para mobilidade urbana acessivel e integracao SPTrans Olho Vivo
+    version: 1.0.0

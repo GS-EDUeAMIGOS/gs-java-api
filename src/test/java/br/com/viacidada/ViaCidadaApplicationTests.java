@@ -16,6 +16,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -75,7 +76,60 @@ class ViaCidadaApplicationTests {
                         .content(objectMapper.writeValueAsString(novaOcorrencia)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.titulo").value("Rampa de acesso com defeito"))
-                .andExpect(jsonPath("$._links.self.href").exists());
+                .andExpect(jsonPath("$._links.self.href").exists())
+                .andExpect(jsonPath("$._links.atualizar.href").exists())
+                .andExpect(jsonPath("$._links.remover.href").exists());
+    }
+
+    @Test
+    @DisplayName("Deve restringir rotas administrativas para ROLE_ADMIN e negar ROLE_CIDADAO com 403")
+    void deveProtegerRotasAdminPorPapel() throws Exception {
+        String tokenCidadao = autenticarEObterToken("cidadao@viacidada.com.br", "Cidadao@123");
+        String tokenAdmin = autenticarEObterToken("admin@viacidada.com.br", "Admin@123");
+
+        mockMvc.perform(get("/api/usuarios")
+                        .header("Authorization", "Bearer " + tokenCidadao))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(delete("/api/sptrans/cache")
+                        .header("Authorization", "Bearer " + tokenCidadao))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/usuarios")
+                        .header("Authorization", "Bearer " + tokenAdmin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray());
+
+        mockMvc.perform(delete("/api/sptrans/cache")
+                        .header("Authorization", "Bearer " + tokenAdmin))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("Deve expor endpoints do Actuator (health e info)")
+    void deveExporActuatorHealthEInfo() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"));
+
+        mockMvc.perform(get("/actuator/info"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.app.name").value("ViaCidada API"));
+    }
+
+    private String autenticarEObterToken(String email, String senha) throws Exception {
+        AuthDTO.LoginRequest loginRequest = AuthDTO.LoginRequest.builder()
+                .email(email)
+                .senha(senha)
+                .build();
+
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(loginRequest)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        return objectMapper.readTree(result.getResponse().getContentAsString()).get("token").asText();
     }
 
     @Test

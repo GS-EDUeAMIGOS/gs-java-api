@@ -61,6 +61,16 @@ public class SecurityConfig {
                                 "/api/rotas/**",
                                 "/api/ocorrencias/**"
                         ).permitAll()
+                        .requestMatchers(HttpMethod.DELETE, "/api/sptrans/cache").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/usuarios").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/usuarios/**").hasRole("ADMIN")
+                        .requestMatchers("/api/usuarios/**").hasAnyRole("CIDADAO", "ADMIN")
+                        .requestMatchers(
+                                "/api/ocorrencias/**",
+                                "/api/linhas-favoritas/**",
+                                "/api/paradas-favoritas/**",
+                                "/api/alertas/**"
+                        ).hasAnyRole("CIDADAO", "ADMIN")
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider())

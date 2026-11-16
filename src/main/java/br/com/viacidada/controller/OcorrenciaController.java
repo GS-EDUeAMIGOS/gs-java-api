@@ -95,6 +95,9 @@ public class OcorrenciaController {
         dto.add(linkTo(methodOn(OcorrenciaController.class)
                 .listarComFiltros(null, null, null, null, null, null, null, Pageable.unpaged()))
                 .withRel("ocorrencias"));
+        dto.add(linkTo(methodOn(OcorrenciaController.class).atualizar(dto.getId(), null)).withRel("atualizar"));
+        dto.add(linkTo(methodOn(OcorrenciaController.class).remover(dto.getId())).withRel("remover"));
+        dto.add(linkTo(methodOn(OcorrenciaController.class).listarCriticasAcessibilidade(null)).withRel("acessibilidade-criticas"));
         if (dto.getCodigoLinha() != null) {
             dto.add(linkTo(methodOn(OlhoVivoController.class).buscarVeiculosPorLinha(dto.getCodigoLinha())).withRel("veiculos-linha"));
         }
