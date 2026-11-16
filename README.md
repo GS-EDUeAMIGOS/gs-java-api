@@ -11,11 +11,14 @@ O backend atua como camada segura para o aplicativo mobile em Flutter ([gs-mobil
 ## 1. Equipe, Pitch e Conexão com os ODS da ONU
 
 ### Integrantes do Grupo
-> Preencher com os dados oficiais cadastrados no Portal FIAP antes da submissão final:
 
 | Nome Completo | RM | Turma |
 |---|---|---|
-| *(Preencher Nome)* | *(RM)* | *(2TDS)* |
+| Alisson Kawan Evangelista Silva | 567598 | 2TDS |
+| Kenji Fernandes Wakabayashi | 568156 | 2TDS |
+| Erick Ramos Santos | 567837 | 2TDS |
+| Eduardo Boni dos Santos | 567236 | 2TDS |
+| Marcos Vinicius de Jesus Almeida | 567214 | 2TDS |
 
 ### Vídeo Pitch (até 5 minutos)
 - **Link do Pitch (YouTube / Drive):** *(Inserir link público ou não listado após gravação)*
