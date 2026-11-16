@@ -12,6 +12,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
@@ -26,7 +27,8 @@ public class UsuarioController {
     private final UsuarioService usuarioService;
 
     @GetMapping
-    @Operation(summary = "Listar usuarios com paginacao e filtro JPQL por papel e mobilidade reduzida")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "[ADMIN] Listar usuarios com paginacao e filtro JPQL por papel e mobilidade reduzida")
     public ResponseEntity<Page<UsuarioDTO.Response>> listar(
             @RequestParam(required = false) Role role,
             @RequestParam(required = false) Boolean mobilidadeReduzida,
@@ -53,7 +55,8 @@ public class UsuarioController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Remover usuario por ID")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "[ADMIN] Remover usuario por ID")
     public ResponseEntity<Void> remover(@PathVariable Long id) {
         usuarioService.remover(id);
         return ResponseEntity.noContent().build();

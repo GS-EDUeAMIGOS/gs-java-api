@@ -1,182 +1,212 @@
-<<<<<<< HEAD
 # ViaCidadã API — Global Solution FIAP 2026/2 (CitizenTech)
 
-API RESTful em **Java 21 + Spring Boot 3.4** para mobilidade urbana acessível, informações públicas de transporte em tempo real (integração com a API pública **Olho Vivo da SPTrans**) e participação cidadã.
+> **Disciplina:** Java Advanced | **Tema:** CitizenTech — Mobilidade Urbana Acessível e Participação Cidadã
 
-O backend atua como camada segura para o aplicativo mobile em Flutter, garantindo que a chave de autenticação da SPTrans (`SPTRANS_TOKEN`) permaneça protegida no servidor.
+API RESTful em **Java 21 + Spring Boot 3.4.5** que sustenta a solução **ViaCidadã**, conectando cidadãos (especialmente Pessoas com Deficiência — PcD e usuários com mobilidade reduzida) a informações de transporte público em tempo real (API **Olho Vivo da SPTrans** + geocodificação **OpenStreetMap**), planejamento inteligente de rotas e registro colaborativo de ocorrências de acessibilidade.
+
+O backend atua como camada segura para o aplicativo mobile em Flutter ([gs-mobile-flutter](https://github.com/GS-EDUeAMIGOS/gs-mobile-flutter)), garantindo que a chave da SPTrans (`SPTRANS_TOKEN`) permaneça protegida em variável de ambiente no servidor.
 
 ---
 
-## 1. Arquitetura e Pacotes
+## 1. Equipe, Pitch e Conexão com os ODS da ONU
+
+### Integrantes do Grupo
+> Preencher com os dados oficiais cadastrados no Portal FIAP antes da submissão final:
+
+| Nome Completo | RM | Turma |
+|---|---|---|
+| *(Preencher Nome)* | *(RM)* | *(2TDS)* |
+
+### Vídeo Pitch (até 5 minutos)
+- **Link do Pitch (YouTube / Drive):** *(Inserir link público ou não listado após gravação)*
+
+### Conexão com os ODS da Agenda 2030 (ONU)
+- **ODS 10 — Redução das Desigualdades:** Amplia a autonomia de pessoas com deficiência (PcD) e mobilidade reduzida ao sinalizar ônibus com elevador acessível e ocorrências críticas de acessibilidade em paradas e veículos.
+- **ODS 11 — Cidades e Comunidades Sustentáveis (Meta 11.2):** Facilita o acesso a sistemas de transporte seguros, acessíveis e sustentáveis por meio de previsão de chegada em tempo real, planejamento multimodal de rotas e zeladoria cidadã.
+
+---
+
+## 2. Arquitetura e Pacotes
 
 ```text
 br.com.viacidada
  ├─ config          # Configurações de Cache, OpenAPI/Swagger e DataSeeder (H2)
- ├─ controller      # Endpoints RESTful com paginação, ordenação e links HATEOAS
+ ├─ controller      # Endpoints RESTful com paginação, ordenação, RBAC e links HATEOAS
  ├─ service         # Regras de negócio, @Cacheable e @CacheEvict
  ├─ repository      # Interfaces Spring Data JPA (Query Methods, @Query JPQL e Specification)
- ├─ entity          # Entidades JPA e Enums de domínio
+ ├─ entity          # Entidades JPA, relacionamentos 1:N e Enums de domínio
  ├─ dto             # Objetos de transferência de dados com Bean Validation e HATEOAS
- ├─ mapper          # Conversão entre Entidades e DTOs
- ├─ exception       # Tratamento global de erros com @RestControllerAdvice
- ├─ security        # Autenticação/Autorização Stateless com JWT, BCrypt e CORS para Mobile
- ├─ client          # Cliente HTTP para a API Olho Vivo da SPTrans (com fallback local)
+ ├─ mapper          # Conversão entre Entidades e DTOs (DomainMapper)
+ ├─ exception       # Tratamento global de erros padronizado (@RestControllerAdvice)
+ ├─ security        # Autenticação Stateless com JWT, BCrypt, papéis (ROLE_CIDADAO/ROLE_ADMIN) e CORS
+ ├─ client          # Clientes HTTP para SPTrans Olho Vivo e OpenStreetMap Nominatim
  └─ specification   # Filtros dinâmicos com JPA Criteria/Specification
 ```
 
 ---
 
-## 2. Modelagem de Domínio e Relacionamentos
+## 3. Modelagem de Domínio e Diagrama de Entidades
 
 A solução possui 5 entidades principais com relacionamentos `1:N` a partir de `Usuario`:
 
-- **`Usuario` (`tb_vc_usuario`)**: Cidadão ou administrador (`Role`: `ROLE_CIDADAO`, `ROLE_ADMIN`), com indicador `possuiMobilidadeReduzida`.
-  - `1:N` -> **`LinhaFavorita` (`tb_vc_linha_favorita`)**: Linhas da SPTrans monitoradas pelo usuário (`codigoLinha`, `letreiro`, `sentido`, `terminalOrigem`, `terminalDestino`, `apelido`).
-  - `1:N` -> **`ParadaFavorita` (`tb_vc_parada_favorita`)**: Paradas monitoradas com indicadores de acessibilidade (`possuiRampaAcessivel`, `possuiPisoTatil`, coordenadas).
-  - `1:N` -> **`Alerta` (`tb_vc_alerta`)**: Alertas configurados pelo cidadão para linhas/paradas específicas, incluindo filtro `somenteVeiculoAcessivel`.
-  - `1:N` -> **`Ocorrencia` (`tb_vc_ocorrencia`)**: Relatos de participação cidadã sobre problemas no transporte (`ACESSIBILIDADE`, `ELEVADOR_INOPERANTE`, `LOTACAO_EXCESSIVA`, `INFRAESTRUTURA_PARADA`, etc.), com gravidade e status.
+```mermaid
+erDiagram
+    USUARIO ||--o{ LINHA_FAVORITA : "monitora (1:N)"
+    USUARIO ||--o{ PARADA_FAVORITA : "salva (1:N)"
+    USUARIO ||--o{ ALERTA : "configura (1:N)"
+    USUARIO ||--o{ OCORRENCIA : "registra (1:N)"
+
+    USUARIO {
+        Long id PK
+        String nome
+        String email UK
+        String senha
+        Role role
+        Boolean possuiMobilidadeReduzida
+        LocalDateTime criadoEm
+    }
+
+    LINHA_FAVORITA {
+        Long id PK
+        Long usuario_id FK
+        Integer codigoLinha
+        String letreiro
+        Integer sentido
+        String terminalOrigem
+        String terminalDestino
+        String apelido
+    }
+
+    PARADA_FAVORITA {
+        Long id PK
+        Long usuario_id FK
+        Long codigoParada
+        String nomeParada
+        String endereco
+        Double latitude
+        Double longitude
+        Boolean possuiRampaAcessivel
+        Boolean possuiPisoTatil
+    }
+
+    ALERTA {
+        Long id PK
+        Long usuario_id FK
+        String titulo
+        String mensagem
+        Integer codigoLinha
+        Long codigoParada
+        Boolean somenteVeiculoAcessivel
+        String horarioNotificacao
+        Boolean ativo
+    }
+
+    OCORRENCIA {
+        Long id PK
+        Long usuario_id FK
+        String titulo
+        String descricao
+        TipoOcorrencia tipo
+        StatusOcorrencia status
+        NivelGravidade gravidade
+        Integer codigoLinha
+        Long codigoParada
+        String prefixoVeiculo
+        Boolean afetaAcessibilidade
+    }
+```
+
+### Justificativa da Modelagem (`cascade`, `fetch` e DTOs)
+- **`FetchType.LAZY` no lado `@ManyToOne`:** Evita carregar o objeto `Usuario` inteiro em consultas onde apenas os dados da ocorrência, linha, parada ou alerta são necessários, prevenindo o problema de consultas N+1.
+- **`CascadeType.ALL` com `orphanRemoval = true` no lado `@OneToMany`:** Garante integridade referencial no ciclo de vida dos dependentes quando um usuário é removido por um administrador.
+- **DTOs separados (`Request` / `Response`) + `DomainMapper`:** Protege campos sensíveis da entidade (como `senha` hash BCrypt) e evita exposição direta do modelo relacional no contrato JSON da API.
 
 ---
 
-## 3. Consultas Personalizadas, Filtros Dinâmicos e Cache
+## 4. Justificativa das Consultas, Filtros Dinâmicos e Cache
 
-### Query Methods Derivados
-- `UsuarioRepository.findByEmailIgnoreCase(String email)`
-- `LinhaFavoritaRepository.findByUsuarioId(Long usuarioId, Pageable pageable)`
-- `ParadaFavoritaRepository.findByUsuarioIdAndPossuiRampaAcessivelTrue(Long usuarioId)`
-- `AlertaRepository.findByUsuarioIdAndAtivoTrue(Long usuarioId)`
-- `OcorrenciaRepository.findByStatus(StatusOcorrencia status, Pageable pageable)`
-
-### Consultas `@Query` com JPQL
-- `UsuarioRepository.buscarPorPerfilEAcessibilidade(Role role, Boolean mobilidadeReduzida, Pageable pageable)`
-- `LinhaFavoritaRepository.buscarFavoritasPorTermo(Long usuarioId, String termo)`
-- `ParadaFavoritaRepository.buscarParadasAcessiveisDoUsuario(Long usuarioId)`
-- `AlertaRepository.buscarAlertasAtivosPorLinhaOuParada(Integer codigoLinha, Long codigoParada)`
-- `OcorrenciaRepository.buscarOcorrenciasCriticasAcessibilidade(List<StatusOcorrencia> statusAtivos, TipoOcorrencia tipo)`
-
-### Filtros Dinâmicos (`Specification`)
-- `OcorrenciaSpecification.comFiltros(...)` permite filtrar ocorrências em `GET /api/ocorrencias` combinando dinamicamente `tipo`, `status`, `gravidade`, `codigoLinha`, `codigoParada`, `afetaAcessibilidade` e busca textual (`termo`).
+### Por que cada tipo de consulta foi escolhido?
+1. **Query Methods Derivados** (consultas simples por igualdade/ordenação/paginação):
+   - `UsuarioRepository.findByEmailIgnoreCase(String email)` — login e checagem de duplicidade sem case-sensitivity.
+   - `LinhaFavoritaRepository.findByUsuarioId(Long usuarioId, Pageable pageable)` — listagem paginada por usuário.
+   - `ParadaFavoritaRepository.findByUsuarioIdAndPossuiRampaAcessivelTrue(Long usuarioId)` — filtro direto de paradas acessíveis.
+   - `AlertaRepository.findByUsuarioIdAndAtivoTrue(Long usuarioId)` — alertas ativos do cidadão.
+   - `OcorrenciaRepository.findByStatus(StatusOcorrencia status, Pageable pageable)` — listagem paginada por status.
+2. **Consultas `@Query` com JPQL** (regras de negócio com múltiplos critérios, `LIKE`, `JOIN` ou parâmetros opcionais):
+   - `UsuarioRepository.buscarPorPerfilEAcessibilidade(Role, Boolean, Pageable)` — filtro administrativo combinando papel e mobilidade reduzida.
+   - `LinhaFavoritaRepository.buscarFavoritasPorTermo(Long, String)` — busca case-insensitive por letreiro, apelido ou terminal.
+   - `ParadaFavoritaRepository.buscarParadasAcessiveisDoUsuario(Long)` — paradas com rampa **ou** piso tátil (`OR`).
+   - `AlertaRepository.buscarAlertasAtivosPorLinhaOuParada(Integer, Long)` — alertas ativos associados a uma linha ou parada.
+   - `OcorrenciaRepository.buscarOcorrenciasCriticasAcessibilidade(List<StatusOcorrencia>, TipoOcorrencia)` — ordenação priorizada por gravidade e data para o painel crítico.
+3. **Filtros Dinâmicos com `Specification`** (`OcorrenciaSpecification.comFiltros(...)`):
+   - Em `GET /api/ocorrencias`, o cidadão ou o app Mobile pode combinar qualquer subconjunto de 7 parâmetros opcionais (`tipo`, `status`, `gravidade`, `codigoLinha`, `codigoParada`, `afetaAcessibilidade`, `termo`). Usar `JpaSpecificationExecutor` evita criar dezenas de métodos `findBy...` combinatórios no repositório.
 
 ### Estratégia de Cache (`@Cacheable` e `@CacheEvict`)
-- **`linhasSptrans`** e **`paradasSptrans`**: Cacheiam consultas à API Olho Vivo (`GET /api/linhas` e `GET /api/paradas`), reduzindo latência e chamadas externas; limpeza manual em `DELETE /api/sptrans/cache`.
-- **`ocorrencias`**: Cacheia a listagem de ocorrências críticas de acessibilidade (`GET /api/ocorrencias/acessibilidade-criticas`) e invalida automaticamente (`@CacheEvict`) ao criar, atualizar ou remover ocorrências.
-- **`alertas`**: Cacheia alertas ativos por linha/parada (`GET /api/alertas/ativos`) e invalida ao alterar alertas.
+- **`linhasSptrans` e `paradasSptrans`:** Cacheiam buscas textuais de linhas (`GET /api/linhas`) e paradas (`GET /api/paradas`, `GET /api/linhas/{codigo}/paradas`), que mudam com baixa frequência, reduzindo latência e requisições à API externa da SPTrans. Possuem invalidação manual administrativa em `DELETE /api/sptrans/cache`. *Posições de veículos em tempo real (`/veiculos`) e previsões (`/previsoes`) NÃO são cacheadas para manter precisão ao vivo.*
+- **`ocorrencias`:** Cacheia `GET /api/ocorrencias/acessibilidade-criticas` (consultado na tela inicial do app) e é invalidado automaticamente (`@CacheEvict(allEntries = true)`) em toda operação de escrita (`POST`, `PUT`, `DELETE`).
+- **`alertas`:** Cacheia `GET /api/alertas/ativos` e invalida automaticamente ao criar, atualizar ou excluir alertas.
 
 ---
 
-## 4. Integração SPTrans Olho Vivo
+## 5. Segurança (JWT, Papéis/RBAC e CORS)
 
-Endpoints próprios expostos pelo backend:
-- `GET /api/linhas?termo={termo}` — Busca linhas por número ou nome.
-- `GET /api/linhas/{codigo}/veiculos` — Posição em tempo real dos ônibus da linha e indicador `a` (acessível para PcD).
-- `GET /api/paradas?termo={termo}` — Busca paradas por nome ou endereço.
-- `GET /api/paradas/{codigo}/previsoes` — Previsão de chegada dos veículos na parada.
+- **Autenticação Stateless com JWT (`jjwt`) + BCrypt:** `POST /api/auth/register` e `POST /api/auth/login`.
+- **Autorização por Papel (RBAC):**
+  - `ROLE_ADMIN`: Acesso exclusivo a `GET /api/usuarios`, `DELETE /api/usuarios/{id}` e `DELETE /api/sptrans/cache`.
+  - `ROLE_CIDADAO` e `ROLE_ADMIN`: Acesso às operações de criação, edição e exclusão de ocorrências, linhas favoritas, paradas favoritas e alertas.
+  - Endpoints públicos de consulta (`GET /api/linhas/**`, `GET /api/paradas/**`, `GET /api/locais/**`, `GET /api/rotas/**`, `GET /api/ocorrencias/**`, Swagger e Actuator).
+- **CORS:** Configurado em `SecurityConfig` para permitir consumo pelo aplicativo Flutter Web/Mobile.
 
-> **Modo Simulado Automático (Fallback)**: Caso a variável `SPTRANS_TOKEN` não esteja definida no ambiente de desenvolvimento/avaliação, o `OlhoVivoClient` responde com dados simulados realistas da SPTrans (`mock-fallback: true`), permitindo testar todos os endpoints imediatamente. Quando `SPTRANS_TOKEN` é informado, a API autentica em `POST /Login/Autenticar?token=...` e consome a SPTrans real.
+### Usuários de Teste (Perfil `h2`)
 
----
+Criados automaticamente pelo `DataSeederConfig` ao iniciar com o perfil padrão `h2`:
 
-## 5. Usuários de Teste (Perfil H2)
-
-Ao iniciar no perfil padrão `h2`, o `DataSeederConfig` cria automaticamente:
-
-| Perfil | E-mail | Senha | Role |
+| Papel | E-mail | Senha | Perfil |
 |---|---|---|---|
-| **Cidadão (PcD)** | `cidadao@viacidada.com.br` | `Cidadao@123` | `ROLE_CIDADAO` |
-| **Administrador** | `admin@viacidada.com.br` | `Admin@123` | `ROLE_ADMIN` |
+| `ROLE_CIDADAO` | `cidadao@viacidada.com.br` | `Cidadao@123` | Cidadão com mobilidade reduzida (PcD) |
+| `ROLE_ADMIN` | `admin@viacidada.com.br` | `Admin@123` | Administrador do sistema |
 
 ---
 
-## 6. Perfis de Banco e Execução
+## 6. Como Executar e Testar
 
-### Perfis Disponíveis
-- **`h2` (padrão)**: Banco H2 em memória com dados iniciais e console em `/h2-console`.
-- **`oracle`**: Configuração para Oracle Database via variáveis de ambiente (`ORACLE_DB_URL`, `ORACLE_DB_USERNAME`, `ORACLE_DB_PASSWORD`) com `ddl-auto=validate` por segurança.
-- **`test`**: Banco H2 isolado para testes automatizados (`mvn test`).
+### Pré-requisitos
+- **Java 21+**
+- Maven Wrapper incluso (`.\mvnw.cmd` no Windows ou `./mvnw` no Linux/macOS)
 
-### Como Executar Localmente (Perfil H2)
+### Variáveis de Ambiente (Opcional / Recomendado)
+Consulte [`.env.example`](.env.example). Nenhuma credencial real é versionada no repositório.
+- `SPTRANS_TOKEN`: Token da API Olho Vivo SPTrans (necessário para consultas reais em `/api/linhas`, `/api/paradas` e `/api/rotas/planejar`).
+- `JWT_SECRET`: Chave secreta HMAC-SHA256 para assinatura JWT (há valor de desenvolvimento local no `application.yml`).
+- `SPRING_PROFILES_ACTIVE`: `h2` (padrão) ou `oracle` (exige `ORACLE_DB_URL`, `ORACLE_DB_USERNAME`, `ORACLE_DB_PASSWORD`).
+
+### Comandos
 
 ```powershell
-# Compilar e rodar os testes automatizados
+# 1. Compilar e rodar todos os testes automatizados (perfil test)
 .\mvnw.cmd test
 
-# Iniciar a aplicação (usa o perfil h2 por padrão)
-# Opcional: definir o token da SPTrans antes de rodar
+# 2. Definir token da SPTrans na sessão (opcional, para endpoints Olho Vivo)
 $env:SPTRANS_TOKEN="SEU_TOKEN_AQUI"
+
+# 3. Subir a API localmente (perfil h2 padrão)
 .\mvnw.cmd spring-boot:run
 ```
 
-### Links Úteis com a Aplicação Rodando
-- **Swagger UI**: `http://localhost:8080/swagger-ui.html`
-- **OpenAPI JSON**: `http://localhost:8080/v3/api-docs`
-- **H2 Console**: `http://localhost:8080/h2-console` (JDBC URL: `jdbc:h2:mem:viacidadadb`, User: `sa`, Password: em branco)
-- **Actuator Health**: `http://localhost:8080/actuator/health`
-=======
-# gs-java-api
+### Endpoints de Documentação, Observabilidade e HATEOAS
+- **Swagger UI:** `http://localhost:8080/swagger-ui.html`
+- **OpenAPI JSON:** `http://localhost:8080/v3/api-docs`
+- **Actuator Health:** `http://localhost:8080/actuator/health`
+- **Actuator Info:** `http://localhost:8080/actuator/info`
+- **Actuator Metrics:** `http://localhost:8080/actuator/metrics`
+- **H2 Console:** `http://localhost:8080/h2-console` (`jdbc:h2:mem:viacidadadb`, usuário `sa`, senha vazia)
 
-**FIAP — Global Solution 2026/2 — CitizenTech**  
-**Disciplina:** Java Advanced
+---
 
-> Estado: preparação documental inicial. Não há aplicação, testes executados, infraestrutura provisionada ou entrega concluída neste repositório.
-
-## Finalidade e limites
-
-API Spring Boot com JPA, validação, JWT, cache, HATEOAS, Actuator e OpenAPI, integrada ao Mobile.
-
-Este repositório representa um **entregável acadêmico da GS**, não o produto completo nem um entregável do Challenge. Os sete repositórios devem representar a mesma solução CitizenTech (slide 20). A solução, o nome do grupo, os integrantes, RMs, turma e responsáveis ainda precisam de confirmação específica para esta GS.
-
-Nenhum código, modelo de domínio ou identidade do Challenge foi copiado. Reutilização futura deve ter origem principal, versão e revisão combinadas; separar entregas não significa duplicar implementação sem controle.
-
-## Fonte e prazo
-
-Fonte primária fornecida pelo usuário: `2TDS Agosto - Global Solution 2026-2.pptx`, slides 51–59. Orientações gerais: slides 11–16 e 20; submissão: slides 81–85. A numeração é a posição real dos slides no PPTX, não o contador interno de cada disciplina.
-
-- **Entrega indicada: 19/11/2026, até 23h55, no Portal FIAP** (slide 14).
-- Cadastro do grupo indicado até **13/11/2026** (slides 12 e 14); notas do arquivo pedem confirmação desse prazo.
-- Apresentações indicadas de **23 a 27/11/2026**; conferir modalidade e agenda com o professor.
-- Este checklist é derivado do PPTX, não substitui rubrica final e instruções do Portal. O original não foi republicado.
-
-## Escopo e checklist
-
-Veja [requisitos da disciplina](docs/requisitos-gs.md) e [decisões e pendências](docs/pendencias.md).
-
-O slide 56 escreve READE.md; este repositório usa README.md. Usuários de teste devem ser sintéticos, sem credenciais reais ou acesso a ambientes compartilhados.
-
-## Equipe e responsabilidade
-
-| Informação | Situação |
-|---|---|
-| Grupo, solução e cidadão beneficiado | A confirmar para a GS |
-| Integrantes, RM e turma | A confirmar para a GS |
-| Responsável principal desta disciplina | A confirmar — um único dono por tarefa |
-| Revisor | A combinar conforme fronteiras afetadas |
-
-Não interpretar membros da organização ou integrantes do Challenge como composição aprovada da GS. Documentar ODS e contribuição às metas conforme slide 11, usando fontes para alegações de impacto.
-
-## Execução e testes
-
-Ainda não há software executável. Na implementação, substituir esta seção por pré-requisitos e versões reais, configuração sem segredos, comandos reproduzíveis, dados sintéticos e resultados de testes efetivamente executados. Não há build ou teste aprovado apenas pela existência desta documentação.
-
-## Evidências e submissão
-
-Arquivo .txt contendo somente o link do repositório público do GitHub, na plataforma FIAP. O link do pitch fica no README (slide 56; pitch nos slides 58–59).
-
-Organização das evidências: [evidence/README.md](evidence/README.md). Orientações de submissão: [delivery/README.md](delivery/README.md). Links de vídeo, diagramas e publicação permanecem pendentes; nenhum artefato final foi gerado.
-
-## Repositórios relacionados da GS
-
+## 7. Repositórios Relacionados da GS
+- [gs-mobile-flutter](https://github.com/GS-EDUeAMIGOS/gs-mobile-flutter) — Mobile Application Development (App Flutter integrado a esta API)
 - [gs-dotnet-api](https://github.com/GS-EDUeAMIGOS/gs-dotnet-api) — Advanced Business Development with .NET
 - [gs-arquitetura-qa](https://github.com/GS-EDUeAMIGOS/gs-arquitetura-qa) — Compliance, Quality Assurance & Tests
 - [gs-devops-cloud](https://github.com/GS-EDUeAMIGOS/gs-devops-cloud) — DevOps Tools & Cloud Computing
 - [gs-iot-redes](https://github.com/GS-EDUeAMIGOS/gs-iot-redes) — Disruptive Architectures: IoT, IoB & Generative IA
 - [gs-database](https://github.com/GS-EDUeAMIGOS/gs-database) — Mastering Relational and Non-Relational Database
-- [gs-mobile-flutter](https://github.com/GS-EDUeAMIGOS/gs-mobile-flutter) — Mobile Application Development
-
-As referências acima organizam entregas; não significam que todas as aplicações serão serviços separados do produto. Registrar contratos entre Java/.NET, Banco, Mobile, IoT e DevOps antes de integrar.
-
-## Contribuição e segurança
-
-Veja [CONTRIBUTING.md](CONTRIBUTING.md). Não versionar senhas, tokens, strings de conexão reais ou dados pessoais de usuários. Exemplos devem usar valores fictícios.
-
-A preparação não configura equipes, permissões, CODEOWNERS, proteção de branches, CI ou deploy. Repositório público não substitui entrega no Portal nem comprova atendimento da rubrica.
->>>>>>> origin/main
