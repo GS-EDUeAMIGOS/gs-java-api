@@ -151,6 +151,81 @@ public class GeocodingClient {
         return inferirRegiaoPorCoordenadaMaisProxima(latitude, longitude);
     }
 
+    /**
+     * Descobre paradas de onibus reais de rua/calcada num raio de ~500m pelo OpenStreetMap (Nominatim bounded viewbox).
+     * Essencial para complementar o endpoint /Parada/Buscar da SPTrans, que indexa apenas corredores exclusivos.
+     */
+    public List<OlhoVivoDTO.ParadaResumo> buscarParadasReaisProximas(double latitude, double longitude) {
+        if (latitude == 0.0 || longitude == 0.0) {
+            return List.of();
+        }
+        try {
+            double delta = 0.0045; // ~500m em Sao Paulo
+            String viewbox = String.format(
+                    Locale.US,
+                    "%.6f,%.6f,%.6f,%.6f",
+                    longitude - delta,
+                    latitude + delta,
+                    longitude + delta,
+                    latitude - delta
+            );
+
+            List<NominatimResult> resultados = restClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/search")
+                            .queryParam("q", "bus_stop")
+                            .queryParam("format", "jsonv2")
+                            .queryParam("addressdetails", 1)
+                            .queryParam("limit", 12)
+                            .queryParam("viewbox", viewbox)
+                            .queryParam("bounded", 1)
+                            .build())
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+
+            if (resultados == null || resultados.isEmpty()) {
+                return List.of();
+            }
+
+            List<OlhoVivoDTO.ParadaResumo> paradas = new ArrayList<>();
+            long seq = 0;
+            for (NominatimResult r : resultados) {
+                Double latP = parseDoubleSafe(r.getLat());
+                Double lonP = parseDoubleSafe(r.getLon());
+                if (latP == null || lonP == null || latP == 0.0 || lonP == 0.0) continue;
+
+                String road = r.getAddress() != null
+                        ? primeiroNaoVazio(r.getAddress(), "road", "pedestrian", "avenue", "street")
+                        : "";
+                String suburb = r.getAddress() != null
+                        ? primeiroNaoVazio(r.getAddress(), "suburb", "neighbourhood", "quarter")
+                        : "";
+
+                String nome = (r.getName() != null && !r.getName().isBlank())
+                        ? r.getName().toUpperCase(Locale.ROOT)
+                        : (!road.isBlank() ? "PONTO " + road.toUpperCase(Locale.ROOT) : "PONTO DE ONIBUS PROXIMO");
+                String endereco = !road.isBlank()
+                        ? road.toUpperCase(Locale.ROOT) + (!suburb.isBlank() ? " - " + suburb.toUpperCase(Locale.ROOT) : "")
+                        : (r.getDisplayName() != null ? r.getDisplayName() : nome);
+
+                long codigoSintetico = 90000000L + Math.abs((long) Objects.hash(
+                        Math.round(latP * 100000), Math.round(lonP * 100000), seq++));
+
+                paradas.add(OlhoVivoDTO.ParadaResumo.builder()
+                        .codigoParada(codigoSintetico)
+                        .nomeParada(nome)
+                        .endereco(endereco)
+                        .latitude(latP)
+                        .longitude(lonP)
+                        .build());
+            }
+            return paradas;
+        } catch (Exception ex) {
+            log.debug("Nao foi possivel consultar paradas OSM proximas a ({}, {}): {}", latitude, longitude, ex.getMessage());
+            return List.of();
+        }
+    }
+
     private void enriquecerLogradouroPorCoordenada(OlhoVivoDTO.LocalResolvido local) {
         try {
             NominatimResult rev = restClient.get()
@@ -168,7 +243,11 @@ public class GeocodingClient {
                 if (!rua.isBlank()) {
                     local.setLogradouro(rua);
                     String ruaLimpa = limparTermoParaSptrans(rua);
-                    if (ruaLimpa.length() >= 3 && !local.getTermosCandidatosSptrans().contains(ruaLimpa)) {
+                    String nucleoRua = extrairNucleoLogradouro(rua);
+                    if (isTermoSptransValido(nucleoRua) && !local.getTermosCandidatosSptrans().contains(nucleoRua)) {
+                        local.getTermosCandidatosSptrans().add(0, nucleoRua);
+                    }
+                    if (isTermoSptransValido(ruaLimpa) && !local.getTermosCandidatosSptrans().contains(ruaLimpa)) {
                         local.getTermosCandidatosSptrans().add(0, ruaLimpa);
                         local.setTermoBuscaSptrans(ruaLimpa);
                     }
@@ -248,20 +327,37 @@ public class GeocodingClient {
         if (isTermoSptransValido(termoUsuarioLimpo)) {
             set.add(termoUsuarioLimpo);
         }
+        String nucleoUsuario = extrairNucleoLogradouro(termoOriginal);
+        if (isTermoSptransValido(nucleoUsuario)) {
+            set.add(nucleoUsuario);
+        }
 
-        // 2. Logradouro oficial (ex.: "Avenida Doutor Ricardo Jafet" -> "RICARDO JAFET", "Rua Eiras Garcia" -> "EIRAS GARCIA")
+        // 2. Logradouro oficial (ex.: "Avenida Doutor Ricardo Jafet" -> "RICARDO JAFET", "Rua Conego Xavier" -> "XAVIER")
         String ruaLimpa = limparTermoParaSptrans(road);
         if (isTermoSptransValido(ruaLimpa)) {
             set.add(ruaLimpa);
         }
+        String nucleoRua = extrairNucleoLogradouro(road);
+        if (isTermoSptransValido(nucleoRua)) {
+            set.add(nucleoRua);
+        }
 
-        // 3. Distrito oficial de Sao Paulo (ex.: "Ipiranga", "Sacomã", "Cambuci", "Vila Mariana", "Pinheiros")
+        // 3. Avenidas coletoras e corredores reais de onibus num raio de 1200m (evita cair direto no distrito gigante!)
+        if (lat != null && lon != null && lat != 0.0 && lon != 0.0) {
+            for (String viaColetora : descobrirAvenidasColetorasProximas(lat, lon)) {
+                if (isTermoSptransValido(viaColetora)) {
+                    set.add(viaColetora);
+                }
+            }
+        }
+
+        // 4. Distrito oficial de Sao Paulo (ex.: "Ipiranga", "Sacomã", "Cambuci", "Vila Mariana", "Pinheiros")
         String distritoLimpo = limparTermoParaSptrans(district);
         if (isTermoSptransValido(distritoLimpo)) {
             set.add(distritoLimpo);
         }
 
-        // 4. Sub-bairro / Vila (ex.: "Vila Dom Pedro I" -> "VILA DOM PEDRO", "Cerqueira César")
+        // 5. Sub-bairro / Vila (ex.: "Vila Dom Pedro I" -> "VILA DOM PEDRO", "Cerqueira César")
         String suburbLimpo = limparTermoParaSptrans(suburb);
         if (isTermoSptransValido(suburbLimpo)) {
             set.add(suburbLimpo);
@@ -282,9 +378,11 @@ public class GeocodingClient {
             set.add("CLINICAS");
             set.add("PAULISTA");
         }
-        if (tudoNorm.contains("CAMBUCI")) {
+        if (tudoNorm.contains("CAMBUCI") || tudoNorm.contains("EIRAS GARCIA") || tudoNorm.contains("MONUMENTO")) {
             set.add("CAMBUCI");
-            set.add("IPIRANGA");
+            set.add("MARIANA");
+            set.add("ANA ROSA");
+            set.add("VERGUEIRO");
         }
 
         // 6. Regiao SPTrans mais proxima pelas coordenadas geograficas (garante que nunca fique sem linhas)
@@ -408,6 +506,13 @@ public class GeocodingClient {
             }
         }
 
+        LinkedHashSet<String> candidatos = new LinkedHashSet<>(descobrirAvenidasColetorasProximas(lat, lon));
+        candidatos.add(maisProxima.termoSptrans());
+        String ruaLimpa = limparTermoParaSptrans(maisProxima.rua());
+        if (isTermoSptransValido(ruaLimpa)) {
+            candidatos.add(ruaLimpa);
+        }
+
         return OlhoVivoDTO.LocalResolvido.builder()
                 .termoOriginal("GPS")
                 .nomeLocal(maisProxima.nome())
@@ -415,7 +520,7 @@ public class GeocodingClient {
                 .logradouro(maisProxima.rua())
                 .bairro(maisProxima.bairro())
                 .termoBuscaSptrans(maisProxima.termoSptrans())
-                .termosCandidatosSptrans(new ArrayList<>(List.of(maisProxima.termoSptrans(), maisProxima.rua())))
+                .termosCandidatosSptrans(new ArrayList<>(candidatos))
                 .latitude(lat)
                 .longitude(lon)
                 .build();
@@ -446,29 +551,128 @@ public class GeocodingClient {
     }
 
     /**
-     * Remove prefixos de tipo de via, palavras de estabelecimentos comerciais ("extra", "supermercado",
-     * "hospital", "shopping", "doutor", "dr", etc.) e termos geograficos genericos ("Brasil", "Sao Paulo", "GPS")
-     * para sobrar apenas o nome real da rua/bairro que a SPTrans usa!
+     * Descobre os eixos e avenidas coletoras reais de onibus proximas a uma coordenada GPS (ate 1200m),
+     * ordenadas da mais proxima para a mais distante. Evita que ruas residenciais sem ponto caiam direto
+     * na busca generica pelo nome inteiro do distrito.
+     */
+    public List<String> descobrirAvenidasColetorasProximas(double lat, double lon) {
+        if (lat == 0.0 || lon == 0.0) {
+            return List.of();
+        }
+
+        record ViaColetora(String termoSptrans, double lat, double lon) {}
+        List<ViaColetora> vias = List.of(
+                // Ipiranga / Sacoma / Heliopolis / Cursino
+                new ViaColetora("NAZARE", -23.5882, -46.6095),
+                new ViaColetora("BOM PASTOR", -23.5868, -46.6071),
+                new ViaColetora("RICARDO JAFET", -23.5919, -46.6096),
+                new ViaColetora("GENTIL DE MOURA", -23.5948, -46.6068),
+                new ViaColetora("SILVA BUENO", -23.5892, -46.6012),
+                new ViaColetora("AGOSTINHO GOMES", -23.5835, -46.6038),
+                new ViaColetora("CIPRIANO BARATA", -23.5847, -46.6054),
+                new ViaColetora("XAVIER", -23.6114, -46.5928),
+                new ViaColetora("LAGRIMAS", -23.6068, -46.5974),
+                new ViaColetora("ARLINDO VIEIRA", -23.6215, -46.6042),
+                new ViaColetora("CURSINO", -23.6145, -46.6182),
+                new ViaColetora("TANCREDO NEVES", -23.6042, -46.6134),
+                new ViaColetora("ANHAIA MELLO", -23.5825, -46.5842),
+                new ViaColetora("JUNTAS PROVISORIAS", -23.5855, -46.5948),
+                new ViaColetora("DO ESTADO", -23.5750, -46.6112),
+                // Vila Mariana / Saude / Jabaquara / Ibirapuera
+                new ViaColetora("DOMINGOS DE MORAIS", -23.5874, -46.6360),
+                new ViaColetora("VERGUEIRO", -23.5782, -46.6378),
+                new ViaColetora("JABAQUARA", -23.6185, -46.6392),
+                new ViaColetora("PEDRO ALVARES CABRAL", -23.5874, -46.6576),
+                new ViaColetora("23 DE MAIO", -23.5780, -46.6470),
+                new ViaColetora("IBIRAPUERA", -23.5985, -46.6632),
+                new ViaColetora("SENA MADUREIRA", -23.5955, -46.6495),
+                // Cambuci / Mooca / Centro
+                new ViaColetora("LINS DE VASCONCELOS", -23.5675, -46.6215),
+                new ViaColetora("LAVAPES", -23.5612, -46.6245),
+                new ViaColetora("PAES DE BARROS", -23.5632, -46.5948),
+                new ViaColetora("DA MOOCA", -23.5558, -46.5967),
+                new ViaColetora("ALCANTARA MACHADO", -23.5482, -46.6088),
+                new ViaColetora("RANGEL PESTANA", -23.5478, -46.6275),
+                new ViaColetora("LIBERDADE", -23.5552, -46.6358),
+                // Paulista / Jardins / Pinheiros / Butanta / Lapa / Santo Amaro / Santana
+                new ViaColetora("PAULISTA", -23.5614, -46.6559),
+                new ViaColetora("CONSOLACAO", -23.5545, -46.6625),
+                new ViaColetora("REBOUCAS", -23.5612, -46.6742),
+                new ViaColetora("BRIGADEIRO LUIS ANTONIO", -23.5635, -46.6492),
+                new ViaColetora("NOVE DE JULHO", -23.5628, -46.6585),
+                new ViaColetora("SANTO AMARO", -23.5975, -46.6782),
+                new ViaColetora("FARIA LIMA", -23.5672, -46.6938),
+                new ViaColetora("TEODORO SAMPAIO", -23.5618, -46.6825),
+                new ViaColetora("CARDEAL ARCOVERDE", -23.5605, -46.6875),
+                new ViaColetora("DOS PINHEIROS", -23.5661, -46.6841),
+                new ViaColetora("VITAL BRASIL", -23.5719, -46.7081),
+                new ViaColetora("FRANCISCO MORATO", -23.5792, -46.7155),
+                new ViaColetora("GUAICURUS", -23.5238, -46.6932),
+                new ViaColetora("CLELIA", -23.5262, -46.6905),
+                new ViaColetora("FRANCISCO MATARAZZO", -23.5276, -46.6745),
+                new ViaColetora("CRUZEIRO DO SUL", -23.5026, -46.6247),
+                new ViaColetora("VOLUNTARIOS DA PATRIA", -23.4985, -46.6278),
+                new ViaColetora("BRAZ LEME", -23.5038, -46.6432),
+                new ViaColetora("ADOLFO PINHEIRO", -23.6548, -46.7105),
+                new ViaColetora("VEREADOR JOSE DINIZ", -23.6352, -46.6852),
+                new ViaColetora("WASHINGTON LUIS", -23.6425, -46.6628)
+        );
+
+        record ViaComDistancia(String termo, double dist) {}
+        return vias.stream()
+                .map(v -> new ViaComDistancia(v.termoSptrans(), calcularDistanciaMetros(lat, lon, v.lat(), v.lon())))
+                .filter(vd -> vd.dist() <= 1200.0)
+                .sorted(Comparator.comparingDouble(ViaComDistancia::dist))
+                .map(ViaComDistancia::termo)
+                .distinct()
+                .limit(3)
+                .toList();
+    }
+
+    /**
+     * Remove prefixos de tipo de via, numeros de imoveis, palavras de estabelecimentos comerciais
+     * ("extra", "supermercado", "hospital", "shopping") e termos geograficos genericos ("Brasil", "Sao Paulo", "GPS")
+     * para sobrar apenas o nome real da rua/bairro que a SPTrans usa.
+     * Exemplo: "Rua Vergueiro, 1000" -> "VERGUEIRO"
      * Exemplo: "Extra Ricardo Jafet" -> "RICARDO JAFET"
-     * Exemplo: "Avenida Doutor Ricardo Jafet" -> "RICARDO JAFET"
      */
     public String limparTermoParaSptrans(String texto) {
         if (texto == null) return "";
         String norm = normalizar(texto);
         // Remove parenteses como "(ENTRADA ESTACIONAMENTO)" ou "(GPS)"
         norm = norm.replaceAll("\\([^)]*\\)", " ");
-        // Remove CEPs e numeros isolados
+        // Remove CEPs
         norm = norm.replaceAll("\\b\\d{5}-?\\d{3}\\b", " ");
-        // Remove prefixos, comercios e palavras genericas como BRASIL / SAO PAULO / GPS
+        // Remove pontuacao antes de limpar numeros e prefixos
+        norm = norm.replaceAll("[,.;:/\\-]+", " ");
+        // Remove numeros de imovel isolados (ex.: "VERGUEIRO 1000" -> "VERGUEIRO") preservando se o texto inteiro for um codigo de linha
+        String semNumeros = norm.replaceAll("\\b\\d+\\b", " ").replaceAll("\\s+", " ").trim();
+        if (semNumeros.length() >= 3) {
+            norm = semNumeros;
+        }
+        // Remove prefixos, comercios e palavras genericas sem apagar "DOM", "SAO", "BRASIL" de nomes de vias
         norm = norm.replaceAll(
-                "\\b(AV|AVENIDA|RUA|R|PRACA|PCA|TERMINAL|TERM|PARQUE|PQ|ESTACAO|METRO|CPTM|HOSPITAL|HOSP|CLINICA|SHOPPING|SHOP|EXTRA|CARREFOUR|ASSAI|ATACADAO|SUPERMERCADO|MERCADO|HIPERMERCADO|FACULDADE|UNIVERSIDADE|ESCOLA|COLEGIO|DOUTOR|DR|DOUTORA|DRA|PROFESSOR|PROF|BRIGADEIRO|BRIG|ENGENHEIRO|ENG|CORONEL|CEL|PADRE|PE|DOM|DONA|ENTRADA|ESTACIONAMENTO|UNIDADE|CAMPUS|SAO PAULO|SAO|PAULO|BRASIL|SP|SUA|MINHA|LOCALIZACAO|ATUAL|GPS|REGIAO|METROPOLITANA|MUNICIPIO|ESTADO|ZONA|SUL|NORTE|LESTE|OESTE|CENTRO)\\b",
+                "\\b(AV|AVENIDA|RUA|R|PRACA|PCA|TERMINAL|TERM|PARQUE|PQ|ESTACAO|METRO|CPTM|HOSPITAL|HOSP|CLINICA|SHOPPING|SHOP|EXTRA|CARREFOUR|ASSAI|ATACADAO|SUPERMERCADO|MERCADO|HIPERMERCADO|FACULDADE|UNIVERSIDADE|ESCOLA|COLEGIO|DOUTOR|DR|DOUTORA|DRA|PROFESSOR|PROF|BRIGADEIRO|BRIG|ENGENHEIRO|ENG|CORONEL|CEL|PADRE|PE|ENTRADA|ESTACIONAMENTO|UNIDADE|CAMPUS|SAO PAULO|SP|SUA|MINHA|LOCALIZACAO|ATUAL|GPS|REGIAO|METROPOLITANA|MUNICIPIO|ESTADO|ZONA|SUL|NORTE|LESTE|OESTE|CENTRO)\\b",
                 " "
         );
-        // Remove pontuacao residual e algarismos romanos soltos no final como "VILA DOM PEDRO I" -> "VILA DOM PEDRO"
-        norm = norm.replaceAll("[,.;:/\\-]+", " ");
-        norm = norm.replaceAll("\\b(I|II|III|IV|V)\\b$", " ");
+        // Remove algarismos romanos soltos no final como "VILA DOM PEDRO I" -> "VILA DOM PEDRO"
         norm = norm.replaceAll("\\s+", " ").trim();
+        norm = norm.replaceAll("\\b(I|II|III|IV|V)$", "").trim();
         return norm;
+    }
+
+    /**
+     * Extrai o nucleo/sobrenome do logradouro removendo titulos que a SPTrans costuma abreviar
+     * (ex.: "Rua Conego Xavier" -> "XAVIER", encontrando "R. CON. XAVIER" na SPTrans).
+     */
+    public String extrairNucleoLogradouro(String texto) {
+        String base = limparTermoParaSptrans(texto);
+        if (base.isBlank()) return "";
+        String nucleo = base.replaceAll(
+                "\\b(CONEGO|CON|CONSELHEIRO|CONS|DEPUTADO|DEP|SENADOR|SEN|GENERAL|GEN|MARECHAL|MAL|PRESIDENTE|PRES|MONSENHOR|MONS|CAPITAO|CAP|MAJOR|MAJ|TENENTE|TEN|ALMIRANTE|ALM|VISCONDE|VISC|BARAO|MARQUES|DOM|DONA|ALAMEDA|AL|ESTRADA|ESTR|LARGO|LGO|TRAVESSA|TV|VIADUTO|VD)\\b",
+                " "
+        ).replaceAll("\\s+", " ").trim();
+        return nucleo.length() >= 3 ? nucleo : "";
     }
 
     public boolean isTermoSptransValido(String termo) {

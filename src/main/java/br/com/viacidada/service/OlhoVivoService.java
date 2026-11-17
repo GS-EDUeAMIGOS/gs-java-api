@@ -27,6 +27,9 @@ public class OlhoVivoService {
     private final GeocodingClient geocodingClient;
     private final OcorrenciaRepository ocorrenciaRepository;
 
+    private volatile OlhoVivoDTO.PosicaoGeralResponse cachePosicaoGeral;
+    private volatile long timestampCachePosicaoGeralMs = 0L;
+
     @Cacheable(value = CacheConfig.CACHE_LINHAS_SPTRANS, key = "#termo != null ? #termo.trim().toLowerCase() : 'todas'")
     public List<OlhoVivoDTO.LinhaResumo> buscarLinhas(String termo) {
         return olhoVivoClient.buscarLinhas(termo);
@@ -188,13 +191,23 @@ public class OlhoVivoService {
         OlhoVivoDTO.ParadaResumo paradaOrigemSugerida = paradasOrigem.isEmpty() ? null : paradasOrigem.get(0);
         OlhoVivoDTO.ParadaResumo paradaDestinoSugerida = paradasDestino.isEmpty() ? null : paradasDestino.get(0);
 
-        // 4. Inspecionar Previsoes nas Paradas de Origem e Destino!
-        // Isso descobre TODAS as linhas que passam naquela parada mesmo que o nome da rua nao esteja no letreiro!
+        // 4. Inspecionar Previsoes nas Paradas SPTrans + Radar Espacial (/Posicao) nas Paradas Reais de Rua!
+        // Isso descobre TODAS as linhas que passam fisicamente ao redor do cidadao, mesmo fora de corredores exclusivos.
         Map<Integer, String> previsaoPorLinhaNaOrigem = new HashMap<>();
         Map<Integer, OlhoVivoDTO.ParadaResumo> paradaConfirmadaOrigemPorLinha = new HashMap<>();
         List<OlhoVivoDTO.LinhaResumo> linhasExtraidasParadasOrigem = extrairLinhasDasParadas(
                 paradasOrigem,
+                localOrigem.getLatitude(),
+                localOrigem.getLongitude(),
                 previsaoPorLinhaNaOrigem,
+                paradaConfirmadaOrigemPorLinha
+        );
+        enriquecerLinhasComRadarEspacial(
+                localOrigem.getLatitude(),
+                localOrigem.getLongitude(),
+                650.0,
+                paradasOrigem,
+                linhasExtraidasParadasOrigem,
                 paradaConfirmadaOrigemPorLinha
         );
 
@@ -202,7 +215,17 @@ public class OlhoVivoService {
         Map<Integer, OlhoVivoDTO.ParadaResumo> paradaConfirmadaDestinoPorLinha = new HashMap<>();
         List<OlhoVivoDTO.LinhaResumo> linhasExtraidasParadasDestino = extrairLinhasDasParadas(
                 paradasDestino,
+                localDestino.getLatitude(),
+                localDestino.getLongitude(),
                 previsaoPorLinhaNoDestino,
+                paradaConfirmadaDestinoPorLinha
+        );
+        enriquecerLinhasComRadarEspacial(
+                localDestino.getLatitude(),
+                localDestino.getLongitude(),
+                850.0,
+                paradasDestino,
+                linhasExtraidasParadasDestino,
                 paradaConfirmadaDestinoPorLinha
         );
 
@@ -233,27 +256,54 @@ public class OlhoVivoService {
         );
         int tempoCaminhadaDestino = Math.max(1, (int) Math.ceil(distCaminhadaDestino / 75.0));
 
-        // 6. Identificar Linhas Diretas (mesma linha presente nas paradas/regiao de origem e destino)
+        // 6. Identificar Linhas Diretas com foco em ponto confirmado e sentido correto
         Map<Integer, OlhoVivoDTO.LinhaResumo> diretasMap = new LinkedHashMap<>();
-        Set<String> letreirosOrigem = new HashSet<>();
         Set<Integer> codigosOrigem = new HashSet<>();
+        Set<Integer> codigosDestino = new HashSet<>();
         for (OlhoVivoDTO.LinhaResumo lo : linhasOrigem) {
-            letreirosOrigem.add(montarLetreiroCompleto(lo));
-            codigosOrigem.add(lo.getCodigoLinha());
-            for (String td : termosBuscaDestino) {
-                if (contemTermoNoTrajeto(lo, normalizarTexto(td))) {
-                    diretasMap.putIfAbsent(lo.getCodigoLinha(), lo);
-                }
+            if (lo.getCodigoLinha() != null) codigosOrigem.add(lo.getCodigoLinha());
+        }
+        for (OlhoVivoDTO.LinhaResumo ld : linhasDestino) {
+            if (ld.getCodigoLinha() != null) codigosDestino.add(ld.getCodigoLinha());
+        }
+
+        // Nivel 1: Mesmo codigoLinha confirmado fisicamente em parada proxima da origem E do destino
+        for (OlhoVivoDTO.LinhaResumo lo : linhasOrigem) {
+            Integer cod = lo.getCodigoLinha();
+            if (cod != null
+                    && paradaConfirmadaOrigemPorLinha.containsKey(cod)
+                    && paradaConfirmadaDestinoPorLinha.containsKey(cod)) {
+                diretasMap.putIfAbsent(cod, lo);
+            }
+        }
+
+        // Nivel 2: Linha confirmada em parada proxima da origem que vai para o destino (no sentido correto)
+        for (OlhoVivoDTO.LinhaResumo lo : linhasOrigem) {
+            Integer cod = lo.getCodigoLinha();
+            if (cod == null || !paradaConfirmadaOrigemPorLinha.containsKey(cod)) continue;
+            if (codigosDestino.contains(cod) || destinoLinhaCombinaCom(lo, termosBuscaDestino)) {
+                diretasMap.putIfAbsent(cod, lo);
+            }
+        }
+
+        // Nivel 3: Mesma linha presente nas listas de origem e destino ou correspondencia por trajeto
+        for (OlhoVivoDTO.LinhaResumo lo : linhasOrigem) {
+            Integer cod = lo.getCodigoLinha();
+            if (cod == null) continue;
+            if (codigosDestino.contains(cod) || destinoLinhaCombinaCom(lo, termosBuscaDestino)) {
+                diretasMap.putIfAbsent(cod, lo);
             }
         }
         for (OlhoVivoDTO.LinhaResumo ld : linhasDestino) {
-            String letreiro = montarLetreiroCompleto(ld);
-            if (codigosOrigem.contains(ld.getCodigoLinha()) || letreirosOrigem.contains(letreiro)) {
-                diretasMap.putIfAbsent(ld.getCodigoLinha(), ld);
-            } else {
+            Integer cod = ld.getCodigoLinha();
+            if (cod == null) continue;
+            if (codigosOrigem.contains(cod)) {
+                diretasMap.putIfAbsent(cod, ld);
+            } else if (paradaConfirmadaDestinoPorLinha.containsKey(cod) || diretasMap.isEmpty()) {
                 for (String to : termosBuscaOrigem) {
                     if (contemTermoNoTrajeto(ld, normalizarTexto(to))) {
-                        diretasMap.putIfAbsent(ld.getCodigoLinha(), ld);
+                        diretasMap.putIfAbsent(cod, ld);
+                        break;
                     }
                 }
             }
@@ -262,21 +312,56 @@ public class OlhoVivoService {
         String nomeExibicaoOrigem = montarNomeExibicaoLocal(localOrigem, usandoGps ? "Sua Localizacao" : termoOrigem);
         String nomeExibicaoDestino = montarNomeExibicaoLocal(localDestino, termoDestino);
 
-        List<OlhoVivoDTO.OpcaoRota> opcoes = new ArrayList<>();
+        // Avaliar TODAS as candidatas diretas (limitando a 10 para proteger latencia) e ordenar pela MENOR caminhada antes de selecionar as top 2
+        final OlhoVivoDTO.ParadaResumo paradaOrigemBase = paradaOrigemSugerida;
+        final int distOrigemBase = distCaminhadaOrigem;
+        List<OlhoVivoDTO.LinhaResumo> candidatasOrdenadas = new ArrayList<>(diretasMap.values());
+        candidatasOrdenadas.sort(Comparator
+                .comparingInt((OlhoVivoDTO.LinhaResumo l) ->
+                        (paradaConfirmadaOrigemPorLinha.containsKey(l.getCodigoLinha())
+                                && paradaConfirmadaDestinoPorLinha.containsKey(l.getCodigoLinha())) ? 0
+                                : (paradaConfirmadaOrigemPorLinha.containsKey(l.getCodigoLinha()) ? 1 : 2))
+                .thenComparingInt(l -> calcularDistanciaSegura(
+                        localOrigem.getLatitude(),
+                        localOrigem.getLongitude(),
+                        paradaConfirmadaOrigemPorLinha.getOrDefault(l.getCodigoLinha(), paradaOrigemBase),
+                        distOrigemBase
+                )));
 
-        // Montar ate 2 opcoes de Linha Direta
-        int countDiretas = 0;
-        for (OlhoVivoDTO.LinhaResumo linhaDireta : diretasMap.values()) {
-            if (countDiretas >= 2) break;
+        List<OlhoVivoDTO.LinhaResumo> todasLinhasConhecidas = new ArrayList<>();
+        todasLinhasConhecidas.addAll(linhasOrigem);
+        todasLinhasConhecidas.addAll(linhasDestino);
+
+        List<OlhoVivoDTO.OpcaoRota> candidatasDiretas = new ArrayList<>();
+        Set<String> letreirosDiretosVistos = new HashSet<>();
+        int inspecionadasDiretas = 0;
+        for (OlhoVivoDTO.LinhaResumo linhaBruta : candidatasOrdenadas) {
+            if (inspecionadasDiretas >= 10) break;
+            String letreiroUnico = montarLetreiroCompleto(linhaBruta);
+            if (!letreirosDiretosVistos.add(letreiroUnico)) continue;
+            inspecionadasDiretas++;
+
+            OlhoVivoDTO.LinhaResumo linhaDireta = orientarLinhaNoSentidoDaViagem(
+                    linhaBruta,
+                    todasLinhasConhecidas,
+                    termosBuscaOrigem,
+                    termosBuscaDestino,
+                    localOrigem.getLatitude(),
+                    localOrigem.getLongitude(),
+                    localDestino.getLatitude(),
+                    localDestino.getLongitude()
+            );
+
             OlhoVivoDTO.ParadaResumo paradaEmbarque = paradaConfirmadaOrigemPorLinha.getOrDefault(
                     linhaDireta.getCodigoLinha(),
-                    paradaOrigemSugerida
+                    paradaConfirmadaOrigemPorLinha.getOrDefault(linhaBruta.getCodigoLinha(), paradaOrigemSugerida)
             );
             OlhoVivoDTO.ParadaResumo paradaDesembarque = paradaConfirmadaDestinoPorLinha.getOrDefault(
                     linhaDireta.getCodigoLinha(),
-                    paradaDestinoSugerida
+                    paradaConfirmadaDestinoPorLinha.getOrDefault(linhaBruta.getCodigoLinha(), paradaDestinoSugerida)
             );
-            boolean confirmadoNoPonto = paradaConfirmadaOrigemPorLinha.containsKey(linhaDireta.getCodigoLinha());
+            boolean confirmadoNoPonto = paradaConfirmadaOrigemPorLinha.containsKey(linhaDireta.getCodigoLinha())
+                    || paradaConfirmadaOrigemPorLinha.containsKey(linhaBruta.getCodigoLinha());
 
             int distAteEstePonto = calcularDistanciaSegura(
                     localOrigem.getLatitude(),
@@ -285,6 +370,14 @@ public class OlhoVivoService {
                     distCaminhadaOrigem
             );
             int minCaminhadaOrigem = Math.max(1, (int) Math.ceil(distAteEstePonto / 75.0));
+
+            int distDoDesembarqueAteDestino = calcularDistanciaSegura(
+                    localDestino.getLatitude(),
+                    localDestino.getLongitude(),
+                    paradaDesembarque,
+                    distCaminhadaDestino
+            );
+            int minCaminhadaDestino = Math.max(1, (int) Math.ceil(distDoDesembarqueAteDestino / 75.0));
 
             OlhoVivoDTO.PassoRota passoCaminhadaInicial = construirPassoCaminhadaOrigem(
                     1,
@@ -315,49 +408,94 @@ public class OlhoVivoService {
                     localDestino,
                     linhaDireta,
                     passoOnibus,
-                    distCaminhadaDestino,
-                    tempoCaminhadaDestino
+                    distDoDesembarqueAteDestino,
+                    minCaminhadaDestino
             );
 
             boolean acessivel = passoOnibus.getVeiculosAcessiveisPcD() != null && passoOnibus.getVeiculosAcessiveisPcD() > 0;
-            int tempoEstimado = (acessivel ? 26 : 32) + minCaminhadaOrigem + tempoCaminhadaDestino;
+            int tempoEstimado = (acessivel ? 26 : 28) + minCaminhadaOrigem + minCaminhadaDestino;
 
-            opcoes.add(OlhoVivoDTO.OpcaoRota.builder()
+            candidatasDiretas.add(OlhoVivoDTO.OpcaoRota.builder()
                     .titulo("Linha Direta • " + montarLetreiroCompleto(linhaDireta))
                     .tipoRota("DIRETA")
                     .recomendada(false)
                     .motivoRecomendacao("Caminhe " + distAteEstePonto + "m ate o ponto e pegue 1 unico onibus ate " + nomeExibicaoDestino)
                     .totalOnibusNecessarios(1)
-                    .tempoEstimadoMinutos(tempoEstimado + (countDiretas * 4))
+                    .tempoEstimadoMinutos(tempoEstimado)
                     .totalmenteAcessivelPcD(acessivel)
                     .totalOcorrenciasNoTrajeto(passoOnibus.getOcorrenciasAbertas())
                     .passos(List.of(passoCaminhadaInicial, passoOnibus, passoDesembarqueCaminhada))
                     .build());
-            countDiretas++;
         }
 
-        // 7. Identificar Opcoes com Baldeacao (2 onibus: Linha que passa no Ponto de Origem -> Linha que chega no Ponto de Destino)
+        candidatasDiretas.sort(Comparator
+                .comparingInt((OlhoVivoDTO.OpcaoRota o) -> temPontoConfirmado(o) ? 0 : 1)
+                .thenComparingInt(o -> temOnibusAtivoNaRota(o) ? 0 : 1)
+                .thenComparingInt(o -> extrairCaminhadaEmbarque(o) / 100)
+                .thenComparingInt(o -> extrairCaminhadaTotal(o) / 100)
+                .thenComparingInt(o -> o.getTotalOcorrenciasNoTrajeto() != null ? o.getTotalOcorrenciasNoTrajeto() : 0)
+                .thenComparingInt(OlhoVivoDTO.OpcaoRota::getTempoEstimadoMinutos)
+                .thenComparingInt(o -> Boolean.TRUE.equals(o.getTotalmenteAcessivelPcD()) ? 0 : 1));
+
+        List<OlhoVivoDTO.OpcaoRota> opcoes = new ArrayList<>();
+        for (int i = 0; i < Math.min(2, candidatasDiretas.size()); i++) {
+            opcoes.add(candidatasDiretas.get(i));
+        }
+
+        // 7. Identificar Opcoes com Baldeacao (2 onibus: Linha confirmada no Ponto de Origem -> Conexao no Caminho -> Destino)
         String chaveOrigemPrincipal = termosBuscaOrigem.isEmpty() ? "" : normalizarTexto(termosBuscaOrigem.get(0));
         List<ParBaldeacao> paresBaldeacao = encontrarMelhoresBaldeacoes(
                 linhasOrigem,
                 linhasDestino,
                 diretasMap.keySet(),
-                chaveOrigemPrincipal
+                paradaConfirmadaOrigemPorLinha.keySet(),
+                paradaConfirmadaDestinoPorLinha.keySet(),
+                chaveOrigemPrincipal,
+                localOrigem.getLatitude(),
+                localOrigem.getLongitude(),
+                localDestino.getLatitude(),
+                localDestino.getLongitude()
         );
 
         int countBaldeacao = 0;
         for (ParBaldeacao par : paresBaldeacao) {
             if (countBaldeacao >= 2 || opcoes.size() >= 4) break;
 
+            double[] coordConexao = estimarCoordenadaTerminalConexao(par.pontoConexao);
+            Double latConexao = coordConexao != null ? coordConexao[0] : null;
+            Double lonConexao = coordConexao != null ? coordConexao[1] : null;
+
+            OlhoVivoDTO.LinhaResumo linha1Orientada = orientarLinhaNoSentidoDaViagem(
+                    par.linha1,
+                    todasLinhasConhecidas,
+                    termosBuscaOrigem,
+                    List.of(par.pontoConexao),
+                    localOrigem.getLatitude(),
+                    localOrigem.getLongitude(),
+                    latConexao,
+                    lonConexao
+            );
+            OlhoVivoDTO.LinhaResumo linha2Orientada = orientarLinhaNoSentidoDaViagem(
+                    par.linha2,
+                    todasLinhasConhecidas,
+                    List.of(par.pontoConexao),
+                    termosBuscaDestino,
+                    latConexao,
+                    lonConexao,
+                    localDestino.getLatitude(),
+                    localDestino.getLongitude()
+            );
+
             OlhoVivoDTO.ParadaResumo paradaEmbarque1 = paradaConfirmadaOrigemPorLinha.getOrDefault(
-                    par.linha1.getCodigoLinha(),
-                    paradaOrigemSugerida
+                    linha1Orientada.getCodigoLinha(),
+                    paradaConfirmadaOrigemPorLinha.getOrDefault(par.linha1.getCodigoLinha(), paradaOrigemSugerida)
             );
             OlhoVivoDTO.ParadaResumo paradaDesembarque2 = paradaConfirmadaDestinoPorLinha.getOrDefault(
-                    par.linha2.getCodigoLinha(),
-                    paradaDestinoSugerida
+                    linha2Orientada.getCodigoLinha(),
+                    paradaConfirmadaDestinoPorLinha.getOrDefault(par.linha2.getCodigoLinha(), paradaDestinoSugerida)
             );
-            boolean confirmadoNoPonto1 = paradaConfirmadaOrigemPorLinha.containsKey(par.linha1.getCodigoLinha());
+            boolean confirmadoNoPonto1 = paradaConfirmadaOrigemPorLinha.containsKey(linha1Orientada.getCodigoLinha())
+                    || paradaConfirmadaOrigemPorLinha.containsKey(par.linha1.getCodigoLinha());
 
             int distAteEstePonto = calcularDistanciaSegura(
                     localOrigem.getLatitude(),
@@ -366,6 +504,14 @@ public class OlhoVivoService {
                     distCaminhadaOrigem
             );
             int minCaminhadaOrigem = Math.max(1, (int) Math.ceil(distAteEstePonto / 75.0));
+
+            int distDoDesembarqueAteDestino = calcularDistanciaSegura(
+                    localDestino.getLatitude(),
+                    localDestino.getLongitude(),
+                    paradaDesembarque2,
+                    distCaminhadaDestino
+            );
+            int minCaminhadaDestino = Math.max(1, (int) Math.ceil(distDoDesembarqueAteDestino / 75.0));
 
             OlhoVivoDTO.PassoRota passoCaminhadaInicial = construirPassoCaminhadaOrigem(
                     1,
@@ -381,10 +527,12 @@ public class OlhoVivoService {
                     paradaEmbarque1 != null
                             ? "Ponto: " + paradaEmbarque1.getNomeParada() + " (" + paradaEmbarque1.getEndereco() + ")"
                             : "Ponto de partida em " + nomeExibicaoOrigem,
-                    "1º Onibus: Embarque na linha " + montarLetreiroCompleto(par.linha1)
-                            + " (" + formatarSentido(par.linha1) + ") ate " + par.pontoConexao,
-                    par.linha1,
-                    previsaoPorLinhaNaOrigem.get(par.linha1.getCodigoLinha()),
+                    "1º Onibus: Embarque na linha " + montarLetreiroCompleto(linha1Orientada)
+                            + " (" + formatarSentido(linha1Orientada) + ") ate " + par.pontoConexao,
+                    linha1Orientada,
+                    previsaoPorLinhaNaOrigem.getOrDefault(
+                            linha1Orientada.getCodigoLinha(),
+                            previsaoPorLinhaNaOrigem.get(par.linha1.getCodigoLinha())),
                     paradaEmbarque1,
                     confirmadoNoPonto1
             );
@@ -394,10 +542,12 @@ public class OlhoVivoService {
                     "BALDEACAO",
                     "Ponto de Baldeacao: " + par.pontoConexao,
                     "2º Onibus (Baldeacao): Desca em " + par.pontoConexao
-                            + ", caminhe ate a parada da linha " + montarLetreiroCompleto(par.linha2)
-                            + " (" + formatarSentido(par.linha2) + ") e embarque rumo a " + nomeExibicaoDestino,
-                    par.linha2,
-                    previsaoPorLinhaNoDestino.get(par.linha2.getCodigoLinha()),
+                            + ", caminhe ate a parada da linha " + montarLetreiroCompleto(linha2Orientada)
+                            + " (" + formatarSentido(linha2Orientada) + ") e embarque rumo a " + nomeExibicaoDestino,
+                    linha2Orientada,
+                    previsaoPorLinhaNoDestino.getOrDefault(
+                            linha2Orientada.getCodigoLinha(),
+                            previsaoPorLinhaNoDestino.get(par.linha2.getCodigoLinha())),
                     null,
                     false
             );
@@ -407,10 +557,10 @@ public class OlhoVivoService {
                     paradaDesembarque2,
                     nomeExibicaoDestino,
                     localDestino,
-                    par.linha2,
+                    linha2Orientada,
                     passo2,
-                    distCaminhadaDestino,
-                    tempoCaminhadaDestino
+                    distDoDesembarqueAteDestino,
+                    minCaminhadaDestino
             );
 
             boolean ambosAcessiveis = (passo1.getVeiculosAcessiveisPcD() != null && passo1.getVeiculosAcessiveisPcD() > 0)
@@ -425,7 +575,7 @@ public class OlhoVivoService {
                     .motivoRecomendacao("Caminhe " + distAteEstePonto + "m ate o ponto, pegue o " + montarLetreiroCompleto(par.linha1)
                             + " e faca baldeacao em " + par.pontoConexao + " para o " + montarLetreiroCompleto(par.linha2))
                     .totalOnibusNecessarios(2)
-                    .tempoEstimadoMinutos(38 + minCaminhadaOrigem + tempoCaminhadaDestino + (countBaldeacao * 6))
+                    .tempoEstimadoMinutos(36 + minCaminhadaOrigem + minCaminhadaDestino + (countBaldeacao * 6))
                     .totalmenteAcessivelPcD(ambosAcessiveis)
                     .totalOcorrenciasNoTrajeto(totalOcorrencias)
                     .passos(List.of(passoCaminhadaInicial, passo1, passo2, passo3))
@@ -433,26 +583,55 @@ public class OlhoVivoService {
             countBaldeacao++;
         }
 
-        // Ordenar e eleger a Melhor Opcao Recomendada
+        // Ordenar e eleger a Melhor Opcao Recomendada priorizando caminhada curta, ponto confirmado e frota em operacao
         if (!opcoes.isEmpty()) {
             opcoes.sort(Comparator
-                    .comparingInt((OlhoVivoDTO.OpcaoRota o) -> "DIRETA".equals(o.getTipoRota()) ? 0 : 1)
+                    .comparingInt((OlhoVivoDTO.OpcaoRota o) -> (extrairCaminhadaEmbarque(o) <= 600 && extrairCaminhadaTotal(o) <= 1100) ? 0 : 1)
+                    .thenComparingInt(o -> (temPontoConfirmado(o) && temOnibusAtivoNaRota(o)) ? 0 : 1)
+                    .thenComparingInt(o -> temPontoConfirmado(o) ? 0 : 1)
+                    .thenComparingInt(o -> temOnibusAtivoNaRota(o) ? 0 : 1)
+                    .thenComparingInt(o -> "DIRETA".equals(o.getTipoRota()) ? 0 : 1)
+                    .thenComparingInt(o -> extrairCaminhadaTotal(o) / 100)
                     .thenComparingInt(o -> o.getTotalOcorrenciasNoTrajeto() != null ? o.getTotalOcorrenciasNoTrajeto() : 0)
                     .thenComparingInt(o -> Boolean.TRUE.equals(o.getTotalmenteAcessivelPcD()) ? 0 : 1)
                     .thenComparingInt(OlhoVivoDTO.OpcaoRota::getTempoEstimadoMinutos));
 
             OlhoVivoDTO.OpcaoRota melhor = opcoes.get(0);
             melhor.setRecomendada(true);
+            int caminMelhor = extrairCaminhadaEmbarque(melhor);
+            String descCaminhada = caminMelhor <= 600
+                    ? "caminhada curta (" + caminMelhor + "m)"
+                    : "caminhada de " + caminMelhor + "m ate o ponto";
             if ("DIRETA".equals(melhor.getTipoRota())) {
                 melhor.setMotivoRecomendacao(
                         Boolean.TRUE.equals(melhor.getTotalmenteAcessivelPcD())
-                                ? "Melhor rota para " + nomeExibicaoDestino + ": 1 unico onibus (sem baldeacao) e frota PcD ativa!"
-                                : "Melhor rota para " + nomeExibicaoDestino + ": caminho mais rapido sem precisar trocar de onibus."
+                                ? "Melhor rota para " + nomeExibicaoDestino + ": " + descCaminhada + ", 1 unico onibus e frota PcD ativa!"
+                                : "Melhor rota para " + nomeExibicaoDestino + ": " + descCaminhada + " e 1 unico onibus direto."
                 );
             } else {
                 melhor.setMotivoRecomendacao(
-                        "Melhor rota para " + nomeExibicaoDestino + ": caminhada ate o ponto mais proximo + baldeacao rapida."
+                        "Melhor rota para " + nomeExibicaoDestino + ": " + descCaminhada + " + baldeacao rapida."
                 );
+            }
+
+            // Sincronizar o resumo do cabecalho com a parada de embarque da melhor rota recomendada
+            OlhoVivoDTO.PassoRota passoCaminhadaMelhor = melhor.getPassos().stream()
+                    .filter(p -> "CAMINHADA".equals(p.getTipoPasso()) && p.getCodigoParada() != null)
+                    .findFirst()
+                    .orElse(null);
+            if (passoCaminhadaMelhor != null) {
+                if (passoCaminhadaMelhor.getDistanciaCaminhadaMetros() != null) {
+                    distCaminhadaOrigem = passoCaminhadaMelhor.getDistanciaCaminhadaMetros();
+                }
+                if (passoCaminhadaMelhor.getLatitudeParada() != null && passoCaminhadaMelhor.getLongitudeParada() != null) {
+                    paradaOrigemSugerida = OlhoVivoDTO.ParadaResumo.builder()
+                            .codigoParada(passoCaminhadaMelhor.getCodigoParada())
+                            .nomeParada(passoCaminhadaMelhor.getNomeParada())
+                            .endereco(passoCaminhadaMelhor.getEnderecoParada())
+                            .latitude(passoCaminhadaMelhor.getLatitudeParada())
+                            .longitude(passoCaminhadaMelhor.getLongitudeParada())
+                            .build();
+                }
             }
         }
 
@@ -472,20 +651,42 @@ public class OlhoVivoService {
     }
 
     /**
-     * Consulta as previsoes das paradas mais proximas para descobrir quais linhas de onibus
-     * realmente passam naquela rua/parada!
+     * Consulta as previsoes das paradas mais proximas (ate 6 paradas num raio de 800m, cobrindo ambos os lados da via)
+     * para descobrir quais linhas de onibus realmente passam naquela rua/parada!
      */
     private List<OlhoVivoDTO.LinhaResumo> extrairLinhasDasParadas(
             List<OlhoVivoDTO.ParadaResumo> paradas,
+            Double latReferencia,
+            Double lonReferencia,
             Map<Integer, String> previsaoPorLinha,
             Map<Integer, OlhoVivoDTO.ParadaResumo> paradaConfirmadaPorLinha
     ) {
         List<OlhoVivoDTO.LinhaResumo> linhasExtraidas = new ArrayList<>();
         Set<Integer> codigosVistos = new HashSet<>();
 
-        for (int i = 0; i < Math.min(3, paradas.size()); i++) {
+        int inspecionadas = 0;
+        for (int i = 0; i < paradas.size() && inspecionadas < 6; i++) {
             OlhoVivoDTO.ParadaResumo parada = paradas.get(i);
             if (parada == null || parada.getCodigoParada() == null) continue;
+
+            if (latReferencia != null && lonReferencia != null
+                    && parada.getLatitude() != null && parada.getLongitude() != null) {
+                double dist = GeocodingClient.calcularDistanciaMetros(
+                        latReferencia, lonReferencia, parada.getLatitude(), parada.getLongitude());
+                // Jamais inspeciona paradas de outros bairros (> 1200m), evitando contaminar a origem com pontos como Angelica C/B!
+                if (dist > 1200.0) {
+                    break;
+                }
+                if (inspecionadas >= 4 && dist > 800.0) {
+                    break;
+                }
+            }
+
+            // Paradas sinteticas do OSM (>= 90000000) nao existem no endpoint /Previsao/Parada da SPTrans;
+            // suas linhas sao descobertas pelo radar espacial /Posicao.
+            if (parada.getCodigoParada() >= 90000000L) continue;
+
+            inspecionadas++;
             try {
                 OlhoVivoDTO.PrevisaoParadaResponse prev = buscarPrevisoesPorParada(parada.getCodigoParada());
                 if (prev != null && prev.getParada() != null && prev.getParada().getLinhas() != null) {
@@ -524,13 +725,10 @@ public class OlhoVivoService {
             }
         }
         int sentido = lp.getSentido() != null ? lp.getSentido() : 1;
-        // Em LinhaPrevisao, lt0 e o Destino e lt1 e a Origem
-        String tp = sentido == 1
-                ? (lp.getOrigem() != null ? lp.getOrigem() : "")
-                : (lp.getDestino() != null ? lp.getDestino() : "");
-        String ts = sentido == 1
-                ? (lp.getDestino() != null ? lp.getDestino() : "")
-                : (lp.getOrigem() != null ? lp.getOrigem() : "");
+        // Na API Olho Vivo da SPTrans (/Posicao e /Previsao/Parada), lt0 (mapeado em getDestino) e SEMPRE o Terminal Principal (tp)
+        // e lt1 (mapeado em getOrigem) e SEMPRE o Terminal Secundario (ts).
+        String tp = lp.getDestino() != null ? lp.getDestino() : "";
+        String ts = lp.getOrigem() != null ? lp.getOrigem() : "";
 
         return OlhoVivoDTO.LinhaResumo.builder()
                 .codigoLinha(lp.getCodigoLinha())
@@ -704,44 +902,168 @@ public class OlhoVivoService {
             List<String> termos
     ) {
         Map<Long, OlhoVivoDTO.ParadaResumo> mapa = new LinkedHashMap<>();
+        boolean temCoordenadaValida = latAlvo != null && lonAlvo != null && latAlvo != 0.0 && lonAlvo != 0.0;
+
         if (termos != null) {
+            int termosConsultados = 0;
             for (String termo : termos) {
+                if (termosConsultados >= 8) break;
                 if (termo == null || termo.isBlank()) continue;
                 String chave = extrairPalavraChave(termo);
                 if (chave.length() < 3) continue;
+                termosConsultados++;
                 try {
                     List<OlhoVivoDTO.ParadaResumo> encontradas = buscarParadasComFallback(chave);
                     for (OlhoVivoDTO.ParadaResumo p : encontradas) {
-                        if (p.getCodigoParada() != null) {
+                        if (p.getCodigoParada() != null
+                                && p.getLatitude() != null && p.getLongitude() != null
+                                && p.getLatitude() != 0.0 && p.getLongitude() != 0.0) {
                             mapa.putIfAbsent(p.getCodigoParada(), p);
                         }
                     }
                 } catch (Exception ex) {
                     log.debug("Termo extra de parada '{}' sem resultados: {}", chave, ex.getMessage());
                 }
-                if (mapa.size() >= 25) break;
+
+                // Parada antecipada inteligente: so interrompe antes de termos genericos de distrito
+                // se ja tivermos pelo menos 4 paradas reais a <= 450 metros do usuario.
+                if (temCoordenadaValida && termosConsultados >= 3) {
+                    long paradasMuitoProximas = mapa.values().stream()
+                            .filter(p -> GeocodingClient.calcularDistanciaMetros(
+                                    latAlvo, lonAlvo, p.getLatitude(), p.getLongitude()) <= 450.0)
+                            .count();
+                    if (paradasMuitoProximas >= 4) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Complementa com paradas reais de calçada do OpenStreetMap quando a SPTrans tiver poucas paradas de corredor (< 3 a <= 600m)
+        if (temCoordenadaValida) {
+            long qtdSptransPerto = mapa.values().stream()
+                    .filter(p -> GeocodingClient.calcularDistanciaMetros(
+                            latAlvo, lonAlvo, p.getLatitude(), p.getLongitude()) <= 600.0)
+                    .count();
+            if (qtdSptransPerto < 3) {
+                try {
+                    List<OlhoVivoDTO.ParadaResumo> paradasOsm = geocodingClient.buscarParadasReaisProximas(latAlvo, lonAlvo);
+                    if (paradasOsm != null) {
+                        for (OlhoVivoDTO.ParadaResumo p : paradasOsm) {
+                            if (p.getCodigoParada() != null
+                                    && p.getLatitude() != null && p.getLongitude() != null
+                                    && p.getLatitude() != 0.0 && p.getLongitude() != 0.0) {
+                                mapa.putIfAbsent(p.getCodigoParada(), p);
+                            }
+                        }
+                    }
+                } catch (Exception ex) {
+                    log.debug("Fallback de paradas OSM indisponivel: {}", ex.getMessage());
+                }
             }
         }
 
         List<OlhoVivoDTO.ParadaResumo> lista = new ArrayList<>(mapa.values());
-        if (latAlvo != null && lonAlvo != null && latAlvo != 0.0 && lonAlvo != 0.0) {
+        if (temCoordenadaValida) {
             lista.sort(Comparator.comparingDouble(
                     p -> GeocodingClient.calcularDistanciaMetros(
                             latAlvo,
                             lonAlvo,
-                            p.getLatitude() != null ? p.getLatitude() : 0.0,
-                            p.getLongitude() != null ? p.getLongitude() : 0.0
+                            p.getLatitude(),
+                            p.getLongitude()
                     )
             ));
-            List<OlhoVivoDTO.ParadaResumo> proximasNoBairro = lista.stream()
-                    .filter(p -> p.getLatitude() != null && p.getLongitude() != null
-                            && GeocodingClient.calcularDistanciaMetros(latAlvo, lonAlvo, p.getLatitude(), p.getLongitude()) <= 4200.0)
-                    .toList();
-            if (!proximasNoBairro.isEmpty()) {
-                return new ArrayList<>(proximasNoBairro);
-            }
         }
         return lista;
+    }
+
+    private OlhoVivoDTO.PosicaoGeralResponse buscarTodasPosicoesComCache() {
+        long agora = System.currentTimeMillis();
+        if (cachePosicaoGeral != null && (agora - timestampCachePosicaoGeralMs) < 25_000L) {
+            return cachePosicaoGeral;
+        }
+        try {
+            OlhoVivoDTO.PosicaoGeralResponse resp = olhoVivoClient.buscarTodasPosicoes();
+            if (resp != null && resp.getLinhas() != null) {
+                cachePosicaoGeral = resp;
+                timestampCachePosicaoGeralMs = agora;
+                return resp;
+            }
+        } catch (Exception ex) {
+            log.debug("Radar geral /Posicao indisponivel no momento: {}", ex.getMessage());
+        }
+        return cachePosicaoGeral;
+    }
+
+    /**
+     * Descobre linhas reais da SPTrans com onibus circulando dentro de [raioMetros] da coordenada informada,
+     * associando cada linha a parada mais proxima daquele veiculo/usuario.
+     */
+    private void enriquecerLinhasComRadarEspacial(
+            Double latAlvo,
+            Double lonAlvo,
+            double raioMetros,
+            List<OlhoVivoDTO.ParadaResumo> paradasProximas,
+            List<OlhoVivoDTO.LinhaResumo> linhasAcumuladas,
+            Map<Integer, OlhoVivoDTO.ParadaResumo> paradaConfirmadaPorLinha
+    ) {
+        if (latAlvo == null || lonAlvo == null || latAlvo == 0.0 || lonAlvo == 0.0) return;
+        OlhoVivoDTO.PosicaoGeralResponse geral = buscarTodasPosicoesComCache();
+        if (geral == null || geral.getLinhas() == null) return;
+
+        Set<Integer> codigosExistentes = new HashSet<>();
+        for (OlhoVivoDTO.LinhaResumo l : linhasAcumuladas) {
+            if (l.getCodigoLinha() != null) codigosExistentes.add(l.getCodigoLinha());
+        }
+
+        for (OlhoVivoDTO.LinhaPosicaoGeral lp : geral.getLinhas()) {
+            if (lp.getCodigoLinha() == null || lp.getVeiculos() == null || lp.getVeiculos().isEmpty()) continue;
+
+            OlhoVivoDTO.VeiculoPosicao veiculoMaisPerto = null;
+            double menorDistVeiculo = Double.MAX_VALUE;
+            for (OlhoVivoDTO.VeiculoPosicao v : lp.getVeiculos()) {
+                if (v.getLatitude() == null || v.getLongitude() == null
+                        || v.getLatitude() == 0.0 || v.getLongitude() == 0.0) continue;
+                double d = GeocodingClient.calcularDistanciaMetros(latAlvo, lonAlvo, v.getLatitude(), v.getLongitude());
+                if (d <= raioMetros && d < menorDistVeiculo) {
+                    menorDistVeiculo = d;
+                    veiculoMaisPerto = v;
+                }
+            }
+            if (veiculoMaisPerto == null) continue;
+
+            // Associa a parada mais proxima entre as paradas reais encontradas (ou a mais proxima do veiculo dentro do raio caminhavel)
+            OlhoVivoDTO.ParadaResumo paradaMaisAdequada = null;
+            double menorScore = Double.MAX_VALUE;
+            if (paradasProximas != null) {
+                for (OlhoVivoDTO.ParadaResumo p : paradasProximas) {
+                    if (p.getLatitude() == null || p.getLongitude() == null) continue;
+                    double distUsuario = GeocodingClient.calcularDistanciaMetros(latAlvo, lonAlvo, p.getLatitude(), p.getLongitude());
+                    if (distUsuario > raioMetros + 250.0) continue;
+                    double distVeiculo = GeocodingClient.calcularDistanciaMetros(
+                            veiculoMaisPerto.getLatitude(), veiculoMaisPerto.getLongitude(), p.getLatitude(), p.getLongitude());
+                    double score = distUsuario + (0.6 * distVeiculo);
+                    if (score < menorScore) {
+                        menorScore = score;
+                        paradaMaisAdequada = p;
+                    }
+                }
+            }
+
+            if (paradaMaisAdequada != null) {
+                paradaConfirmadaPorLinha.putIfAbsent(lp.getCodigoLinha(), paradaMaisAdequada);
+            }
+            if (codigosExistentes.add(lp.getCodigoLinha())) {
+                OlhoVivoDTO.LinhaPrevisao conv = OlhoVivoDTO.LinhaPrevisao.builder()
+                        .codigoLinha(lp.getCodigoLinha())
+                        .letreiroCompleto(lp.getLetreiroCompleto())
+                        .sentido(lp.getSentido())
+                        .destino(lp.getDestino())
+                        .origem(lp.getOrigem())
+                        .build();
+                linhasAcumuladas.add(converterLinhaPrevisaoParaResumo(conv));
+            }
+        }
     }
 
     private int calcularDistanciaSegura(
@@ -755,7 +1077,9 @@ public class OlhoVivoService {
             return valorPadraoMetros;
         }
         double d = GeocodingClient.calcularDistanciaMetros(lat, lon, parada.getLatitude(), parada.getLongitude());
-        if (d <= 0 || d > 8000) {
+        // Nunca substituir distancias reais de 5km-20km por valorPadraoMetros (como 86m)!
+        // So usa valorPadraoMetros se a coordenada for invalida (> 50km, fora da Grande SP).
+        if (d <= 0 || d > 50000) {
             return valorPadraoMetros;
         }
         return (int) Math.round(d);
@@ -851,59 +1175,339 @@ public class OlhoVivoService {
             List<OlhoVivoDTO.LinhaResumo> linhasOrigem,
             List<OlhoVivoDTO.LinhaResumo> linhasDestino,
             Set<Integer> codigosDiretos,
-            String chaveOrigemNorm
+            Set<Integer> codigosConfirmadosOrigem,
+            Set<Integer> codigosConfirmadosDestino,
+            String chaveOrigemNorm,
+            Double latOrigem,
+            Double lonOrigem,
+            Double latDestino,
+            Double lonDestino
     ) {
-        List<ParBaldeacao> resultado = new ArrayList<>();
+        List<ParBaldeacao> candidatas = new ArrayList<>();
         Set<String> combinacoesUsadas = new HashSet<>();
 
-        for (OlhoVivoDTO.LinhaResumo l1 : linhasOrigem) {
+        List<OlhoVivoDTO.LinhaResumo> origOrdenadas = new ArrayList<>(linhasOrigem);
+        origOrdenadas.sort(Comparator.comparingInt(
+                l -> codigosConfirmadosOrigem.contains(l.getCodigoLinha()) ? 0 : 1));
+
+        List<OlhoVivoDTO.LinhaResumo> destOrdenadas = new ArrayList<>(linhasDestino);
+        destOrdenadas.sort(Comparator.comparingInt(
+                l -> codigosConfirmadosDestino.contains(l.getCodigoLinha()) ? 0 : 1));
+
+        for (OlhoVivoDTO.LinhaResumo l1 : origOrdenadas) {
             if (codigosDiretos.contains(l1.getCodigoLinha())) continue;
-            for (OlhoVivoDTO.LinhaResumo l2 : linhasDestino) {
+            for (OlhoVivoDTO.LinhaResumo l2 : destOrdenadas) {
                 if (codigosDiretos.contains(l2.getCodigoLinha())) continue;
                 if (Objects.equals(l1.getCodigoLinha(), l2.getCodigoLinha())) continue;
+                if (montarLetreiroCompleto(l1).equals(montarLetreiroCompleto(l2))) continue;
 
-                String terminalComum = descobrirTerminalComum(l1, l2);
+                String terminalComum = descobrirTerminalComumNoSentido(l1, l2);
                 if (terminalComum != null) {
                     String chavePar = montarLetreiroCompleto(l1) + "->" + montarLetreiroCompleto(l2);
                     if (combinacoesUsadas.add(chavePar)) {
-                        resultado.add(new ParBaldeacao(l1, l2, terminalComum));
-                        if (resultado.size() >= 2) return resultado;
+                        candidatas.add(new ParBaldeacao(l1, l2, terminalComum));
                     }
                 }
             }
         }
 
-        for (OlhoVivoDTO.LinhaResumo l1 : linhasOrigem) {
+        // Ordena as baldeacoes candidatas para priorizar:
+        // 1. Linha 1 confirmada no ponto proximo do usuario + Linha 2 confirmada no destino
+        // 2. Menor desvio geografico (prefere conexoes no meio do caminho como Metro Vila Mariana / Ana Rosa / Paraiso
+        //    em vez de dar volta pelo Centro no Pq. D. Pedro II, Santana ou Jd. Elba!)
+        candidatas.sort(Comparator
+                .comparingInt((ParBaldeacao p) ->
+                        (codigosConfirmadosOrigem.contains(p.linha1.getCodigoLinha())
+                                && codigosConfirmadosDestino.contains(p.linha2.getCodigoLinha())) ? 0
+                                : (codigosConfirmadosOrigem.contains(p.linha1.getCodigoLinha()) ? 1 : 2))
+                .thenComparingDouble(p -> calcularPenalidadeDesvioConexao(
+                        p.pontoConexao, latOrigem, lonOrigem, latDestino, lonDestino)));
+
+        if (candidatas.size() >= 2) {
+            return candidatas.subList(0, 2);
+        }
+
+        for (OlhoVivoDTO.LinhaResumo l1 : origOrdenadas) {
             if (codigosDiretos.contains(l1.getCodigoLinha())) continue;
+            if (!codigosConfirmadosOrigem.isEmpty() && !codigosConfirmadosOrigem.contains(l1.getCodigoLinha())) {
+                continue;
+            }
             String pontoIntegracao = escolherTerminalDeConexao(l1, chaveOrigemNorm);
-            for (OlhoVivoDTO.LinhaResumo l2 : linhasDestino) {
+            for (OlhoVivoDTO.LinhaResumo l2 : destOrdenadas) {
                 if (codigosDiretos.contains(l2.getCodigoLinha())) continue;
                 if (Objects.equals(l1.getCodigoLinha(), l2.getCodigoLinha())) continue;
+                if (montarLetreiroCompleto(l1).equals(montarLetreiroCompleto(l2))) continue;
+                if (!codigosConfirmadosDestino.isEmpty() && !codigosConfirmadosDestino.contains(l2.getCodigoLinha())) {
+                    continue;
+                }
 
                 String chavePar = montarLetreiroCompleto(l1) + "->" + montarLetreiroCompleto(l2);
                 if (combinacoesUsadas.add(chavePar)) {
-                    resultado.add(new ParBaldeacao(l1, l2, pontoIntegracao));
-                    if (resultado.size() >= 2) return resultado;
+                    candidatas.add(new ParBaldeacao(l1, l2, pontoIntegracao));
+                    if (candidatas.size() >= 2) return candidatas;
                 }
             }
         }
 
-        return resultado;
+        return candidatas;
     }
 
-    private String descobrirTerminalComum(OlhoVivoDTO.LinhaResumo l1, OlhoVivoDTO.LinhaResumo l2) {
-        String tp1 = normalizarTexto(l1.getTerminalPrincipal());
-        String ts1 = normalizarTexto(l1.getTerminalSecundario());
+    /**
+     * Verifica se o terminal para onde o 1o onibus (l1) esta INDO coincide com um dos terminais de l2,
+     * evitando sugerir baldeacao no terminal de onde l1 ja saiu ou em bairros opostos.
+     */
+    private String descobrirTerminalComumNoSentido(OlhoVivoDTO.LinhaResumo l1, OlhoVivoDTO.LinhaResumo l2) {
+        String dest1 = normalizarTexto(extrairTerminalDestino(l1));
         String tp2 = normalizarTexto(l2.getTerminalPrincipal());
         String ts2 = normalizarTexto(l2.getTerminalSecundario());
 
-        if (!tp1.isEmpty() && (tp1.equals(tp2) || tp1.equals(ts2))) {
-            return l1.getTerminalPrincipal();
-        }
-        if (!ts1.isEmpty() && (ts1.equals(tp2) || ts1.equals(ts2))) {
-            return l1.getTerminalSecundario();
+        if (!dest1.isEmpty() && (terminaisEquivalentes(dest1, tp2) || terminaisEquivalentes(dest1, ts2))) {
+            return extrairTerminalDestino(l1);
         }
         return null;
+    }
+
+    /**
+     * Calcula o desvio geografico (em metros) de fazer baldeacao em [pontoConexao] em relacao a linha reta Origem -> Destino.
+     * Evita que uma viagem Cambuci -> Ibirapuera suba ate o Centro (Pq. D. Pedro II) ou Zona Norte (Santana)
+     * quando pode conectar direto no Metro Vila Mariana ou Metro Ana Rosa!
+     */
+    private double calcularPenalidadeDesvioConexao(
+            String pontoConexao,
+            Double latOrigem,
+            Double lonOrigem,
+            Double latDestino,
+            Double lonDestino
+    ) {
+        if (latOrigem == null || lonOrigem == null || latDestino == null || lonDestino == null
+                || latOrigem == 0.0 || lonOrigem == 0.0 || latDestino == 0.0 || lonDestino == 0.0) {
+            return 0.0;
+        }
+        double[] coordConexao = estimarCoordenadaTerminalConexao(pontoConexao);
+        if (coordConexao == null) {
+            return 2500.0;
+        }
+        double distDireta = GeocodingClient.calcularDistanciaMetros(latOrigem, lonOrigem, latDestino, lonDestino);
+        double distViaConexao = GeocodingClient.calcularDistanciaMetros(latOrigem, lonOrigem, coordConexao[0], coordConexao[1])
+                + GeocodingClient.calcularDistanciaMetros(coordConexao[0], coordConexao[1], latDestino, lonDestino);
+        return Math.max(0.0, distViaConexao - distDireta);
+    }
+
+    private double[] estimarCoordenadaTerminalConexao(String nomeTerminal) {
+        String norm = normalizarTexto(nomeTerminal);
+        if (norm.contains("MARIANA")) return new double[]{-23.5892, -46.6346};
+        if (norm.contains("ANA ROSA")) return new double[]{-23.5815, -46.6384};
+        if (norm.contains("PARAISO")) return new double[]{-23.5755, -46.6408};
+        if (norm.contains("VERGUEIRO")) return new double[]{-23.5688, -46.6398};
+        if (norm.contains("SANTA CRUZ")) return new double[]{-23.5988, -46.6366};
+        if (norm.contains("SACOMA")) return new double[]{-23.6012, -46.6031};
+        if (norm.contains("IPIRANGA")) return new double[]{-23.5856, -46.6098};
+        if (norm.contains("IBIRAPUERA")) return new double[]{-23.5874, -46.6576};
+        if (norm.contains("CLINICAS")) return new double[]{-23.5567, -46.6699};
+        if (norm.contains("PAULISTA") || norm.contains("CONSOLACAO") || norm.contains("MASP")) return new double[]{-23.5614, -46.6559};
+        if (norm.contains("PINHEIROS")) return new double[]{-23.5656, -46.7015};
+        if (norm.contains("SANTO AMARO")) return new double[]{-23.6548, -46.7105};
+        if (norm.contains("JABAQUARA")) return new double[]{-23.6462, -46.6410};
+        if (norm.contains("BANDEIRA") || norm.contains("ANHANGABAU") || norm.contains("REPUBLICA") || norm.contains("ISABEL")) return new double[]{-23.5489, -46.6388};
+        if (norm.contains("PEDRO II") || norm.contains("D. PEDRO") || norm.contains("SE")) return new double[]{-23.5498, -46.6275};
+        if (norm.contains("LAPA")) return new double[]{-23.5205, -46.7010};
+        if (norm.contains("SANTANA")) return new double[]{-23.5026, -46.6247};
+        if (norm.contains("PENHA") || norm.contains("TATUAPE")) return new double[]{-23.5332, -46.5435};
+        if (norm.contains("ELBA") || norm.contains("SAPOPEMBA")) return new double[]{-23.6115, -46.5082};
+        return null;
+    }
+
+    private boolean terminaisEquivalentes(String t1, String t2) {
+        if (t1.isEmpty() || t2.isEmpty()) return false;
+        if (t1.equals(t2)) return true;
+        String n1 = extrairPalavraChave(t1);
+        String n2 = extrairPalavraChave(t2);
+        return n1.length() >= 4 && n2.length() >= 4 && (n1.equals(n2) || n1.contains(n2) || n2.contains(n1));
+    }
+
+    private boolean destinoLinhaCombinaCom(OlhoVivoDTO.LinhaResumo linha, List<String> termosBuscaDestino) {
+        String destinoLinha = normalizarTexto(extrairTerminalDestino(linha));
+        for (String td : termosBuscaDestino) {
+            String tdNorm = normalizarTexto(td);
+            if (tdNorm.length() < 3) continue;
+            if (!destinoLinha.isEmpty() && destinoLinha.contains(tdNorm)) {
+                return true;
+            }
+            if (contemTermoNoTrajeto(linha, tdNorm)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String extrairTerminalDestino(OlhoVivoDTO.LinhaResumo linha) {
+        if (Integer.valueOf(1).equals(linha.getSentido())) {
+            return linha.getTerminalSecundario() != null ? linha.getTerminalSecundario() : "";
+        }
+        return linha.getTerminalPrincipal() != null ? linha.getTerminalPrincipal() : "";
+    }
+
+    /**
+     * Garante que qualquer linha sugerida (direta ou baldeacao) esteja orientada no sentido real
+     * em que o passageiro vai se deslocar (Partida do Trecho -> Chegada do Trecho), evitando sugerir
+     * o letreiro no sentido oposto (contramao).
+     */
+    private OlhoVivoDTO.LinhaResumo orientarLinhaNoSentidoDaViagem(
+            OlhoVivoDTO.LinhaResumo linha,
+            List<OlhoVivoDTO.LinhaResumo> catalogoConhecido,
+            List<String> termosPartida,
+            List<String> termosChegada,
+            Double latPartida,
+            Double lonPartida,
+            Double latChegada,
+            Double lonChegada
+    ) {
+        if (linha == null) return null;
+        String tp = linha.getTerminalPrincipal() != null ? linha.getTerminalPrincipal() : "";
+        String ts = linha.getTerminalSecundario() != null ? linha.getTerminalSecundario() : "";
+        if (tp.isBlank() || ts.isBlank()) return linha;
+
+        // Sentido 1: partida = tp, chegada = ts (tp -> ts)
+        // Sentido 2: partida = ts, chegada = tp (ts -> tp)
+        int scoreSentido1 = pontuarDirecaoTerminais(tp, ts, termosPartida, termosChegada, latPartida, lonPartida, latChegada, lonChegada);
+        int scoreSentido2 = pontuarDirecaoTerminais(ts, tp, termosPartida, termosChegada, latPartida, lonPartida, latChegada, lonChegada);
+
+        if (scoreSentido1 == scoreSentido2) {
+            return linha;
+        }
+
+        int sentidoCorreto = scoreSentido1 > scoreSentido2 ? 1 : 2;
+        if (Integer.valueOf(sentidoCorreto).equals(linha.getSentido())) {
+            return linha;
+        }
+
+        // Procura no catalogo se ja temos o objeto LinhaResumo gemeo (mesmo letreiro, sentido oposto) com o codigoLinha oficial da SPTrans
+        String letreiroAlvo = montarLetreiroCompleto(linha);
+        if (catalogoConhecido != null) {
+            for (OlhoVivoDTO.LinhaResumo cand : catalogoConhecido) {
+                if (cand != null
+                        && letreiroAlvo.equals(montarLetreiroCompleto(cand))
+                        && Integer.valueOf(sentidoCorreto).equals(cand.getSentido())) {
+                    return cand;
+                }
+            }
+        }
+
+        // Se nao estava no catalogo local, ajusta o sentido para que o letreiro e a instrucao fiquem na direcao correta
+        return OlhoVivoDTO.LinhaResumo.builder()
+                .codigoLinha(linha.getCodigoLinha())
+                .circular(linha.getCircular())
+                .letreiroNumerico(linha.getLetreiroNumerico())
+                .modoAtendimento(linha.getModoAtendimento())
+                .sentido(sentidoCorreto)
+                .terminalPrincipal(linha.getTerminalPrincipal())
+                .terminalSecundario(linha.getTerminalSecundario())
+                .build();
+    }
+
+    private int pontuarDirecaoTerminais(
+            String terminalPartida,
+            String terminalChegada,
+            List<String> termosPartida,
+            List<String> termosChegada,
+            Double latPartida,
+            Double lonPartida,
+            Double latChegada,
+            Double lonChegada
+    ) {
+        int score = 0;
+        String partNorm = normalizarTexto(terminalPartida);
+        String chegNorm = normalizarTexto(terminalChegada);
+
+        if (termosChegada != null) {
+            for (String tc : termosChegada) {
+                String tcNorm = extrairPalavraChave(tc);
+                if (tcNorm.length() < 3) tcNorm = normalizarTexto(tc);
+                if (tcNorm.length() < 3) continue;
+                if (chegNorm.contains(tcNorm) || terminaisEquivalentes(chegNorm, tcNorm)) {
+                    score += 100;
+                }
+                if (partNorm.contains(tcNorm) || terminaisEquivalentes(partNorm, tcNorm)) {
+                    score -= 100;
+                }
+            }
+        }
+
+        if (termosPartida != null) {
+            for (String to : termosPartida) {
+                String toNorm = extrairPalavraChave(to);
+                if (toNorm.length() < 3) toNorm = normalizarTexto(to);
+                if (toNorm.length() < 3) continue;
+                if (partNorm.contains(toNorm) || terminaisEquivalentes(partNorm, toNorm)) {
+                    score += 60;
+                }
+                if (chegNorm.contains(toNorm) || terminaisEquivalentes(chegNorm, toNorm)) {
+                    score -= 60;
+                }
+            }
+        }
+
+        if (latPartida != null && lonPartida != null && latChegada != null && lonChegada != null
+                && latPartida != 0.0 && lonPartida != 0.0 && latChegada != 0.0 && lonChegada != 0.0) {
+            double[] coordTermCheg = estimarCoordenadaTerminalConexao(terminalChegada);
+            if (coordTermCheg != null) {
+                double distPartidaAteTerm = GeocodingClient.calcularDistanciaMetros(
+                        latPartida, lonPartida, coordTermCheg[0], coordTermCheg[1]);
+                double distChegadaAteTerm = GeocodingClient.calcularDistanciaMetros(
+                        latChegada, lonChegada, coordTermCheg[0], coordTermCheg[1]);
+                // Se o destino do passageiro fica mais perto do terminal de chegada do onibus do que a partida do passageiro,
+                // o onibus esta indo na direcao certa!
+                if (distChegadaAteTerm + 300.0 < distPartidaAteTerm) {
+                    score += 70;
+                } else if (distPartidaAteTerm + 300.0 < distChegadaAteTerm) {
+                    score -= 70;
+                }
+            }
+            double[] coordTermPart = estimarCoordenadaTerminalConexao(terminalPartida);
+            if (coordTermPart != null) {
+                double distPartidaAteTermOrig = GeocodingClient.calcularDistanciaMetros(
+                        latPartida, lonPartida, coordTermPart[0], coordTermPart[1]);
+                double distChegadaAteTermOrig = GeocodingClient.calcularDistanciaMetros(
+                        latChegada, lonChegada, coordTermPart[0], coordTermPart[1]);
+                if (distPartidaAteTermOrig + 300.0 < distChegadaAteTermOrig) {
+                    score += 40;
+                } else if (distChegadaAteTermOrig + 300.0 < distPartidaAteTermOrig) {
+                    score -= 40;
+                }
+            }
+        }
+
+        return score;
+    }
+
+    private boolean temPontoConfirmado(OlhoVivoDTO.OpcaoRota opcao) {
+        if (opcao == null || opcao.getPassos() == null) return false;
+        return opcao.getPassos().stream().anyMatch(p -> Boolean.TRUE.equals(p.getPontoConfirmadoNaParada()));
+    }
+
+    private boolean temOnibusAtivoNaRota(OlhoVivoDTO.OpcaoRota opcao) {
+        if (opcao == null || opcao.getPassos() == null) return false;
+        return opcao.getPassos().stream()
+                .filter(p -> "EMBARQUE_DIRETO".equals(p.getTipoPasso()) || "EMBARQUE".equals(p.getTipoPasso()))
+                .allMatch(p -> p.getVeiculosCirculando() != null && p.getVeiculosCirculando() > 0);
+    }
+
+    private int extrairCaminhadaEmbarque(OlhoVivoDTO.OpcaoRota opcao) {
+        if (opcao == null || opcao.getPassos() == null) return 9999;
+        return opcao.getPassos().stream()
+                .filter(p -> "CAMINHADA".equals(p.getTipoPasso()) && p.getDistanciaCaminhadaMetros() != null)
+                .mapToInt(OlhoVivoDTO.PassoRota::getDistanciaCaminhadaMetros)
+                .findFirst()
+                .orElse(9999);
+    }
+
+    private int extrairCaminhadaTotal(OlhoVivoDTO.OpcaoRota opcao) {
+        if (opcao == null || opcao.getPassos() == null) return 9999;
+        return opcao.getPassos().stream()
+                .filter(p -> ("CAMINHADA".equals(p.getTipoPasso()) || "DESEMBARQUE".equals(p.getTipoPasso()))
+                        && p.getDistanciaCaminhadaMetros() != null)
+                .mapToInt(OlhoVivoDTO.PassoRota::getDistanciaCaminhadaMetros)
+                .sum();
     }
 
     private String escolherTerminalDeConexao(OlhoVivoDTO.LinhaResumo l1, String chaveOrigemNorm) {

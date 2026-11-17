@@ -104,6 +104,21 @@ public class OlhoVivoClient {
         }
     }
 
+    public OlhoVivoDTO.PosicaoGeralResponse buscarTodasPosicoes() {
+        try {
+            garantirSessao();
+            return restClient.get()
+                    .uri("/Posicao")
+                    .header(HttpHeaders.COOKIE, sessionCookie)
+                    .retrieve()
+                    .body(OlhoVivoDTO.PosicaoGeralResponse.class);
+        } catch (ExternalIntegrationException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new ExternalIntegrationException("Erro ao consultar radar geral de veiculos na API Olho Vivo: " + ex.getMessage(), ex);
+        }
+    }
+
     public List<OlhoVivoDTO.ParadaResumo> buscarParadas(String termo) {
         try {
             garantirSessao();

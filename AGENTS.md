@@ -43,11 +43,15 @@ existing suite uses Portuguese `@DisplayName` descriptions). Cover endpoint
 status/JSON contracts, authentication and authorization, validation, and
 service/repository behavior. Run `.\mvnw.cmd test` before submitting changes.
 
-## Security & Configuration Tips
+## Security, Database & Configuration Tips
 
 Never commit JWT secrets, database passwords, or `SPTRANS_TOKEN`; use
 environment variables. Keep Oracle `ddl-auto` at `validate` or `none` in shared
 environments, and do not run schema-changing commands against shared databases.
+
+**Regra Estrita de Banco de Dados (Somente Consultoria / Zero Alteração Direta)**:
+- O agente **NUNCA** deve executar alterações no banco de dados (DDL/DML direto no Oracle), nem criar/alterar scripts SQL ou modificar a estrutura das entidades/tabelas que impactem o schema do banco por conta própria.
+- Caso alguma tarefa ou funcionalidade exija qualquer alteração no banco de dados (nova tabela, nova coluna, mudança de tipo, constraint, índice ou carga de dados), o agente deve **apenas informar claramente qual alteração é necessária e explicar o porquê técnico**, sem executar ou alterar nada relacionado ao banco sem autorização explícita.
 
 ## Commit & Pull Request Guidelines
 
