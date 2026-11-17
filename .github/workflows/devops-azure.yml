@@ -1,0 +1,15 @@
+name: ViaCidada - validar e implantar Java
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  devops:
+    uses: GS-EDUeAMIGOS/gs-devops-cloud/.github/workflows/ci-cd.yml@main
+    with:
+      java_sha: ${{ github.sha }}
