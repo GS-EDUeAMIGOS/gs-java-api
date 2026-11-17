@@ -104,6 +104,47 @@ public final class OlhoVivoDTO {
     @NoArgsConstructor
     @AllArgsConstructor
     @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class LinhaPosicaoGeral {
+        @JsonProperty("c")
+        private String letreiroCompleto;
+
+        @JsonProperty("cl")
+        private Integer codigoLinha;
+
+        @JsonProperty("sl")
+        private Integer sentido;
+
+        @JsonProperty("lt0")
+        private String destino;
+
+        @JsonProperty("lt1")
+        private String origem;
+
+        @JsonProperty("qv")
+        private Integer quantidadeVeiculos;
+
+        @JsonProperty("vs")
+        private List<VeiculoPosicao> veiculos;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class PosicaoGeralResponse {
+        @JsonProperty("hr")
+        private String horarioReferencia;
+
+        @JsonProperty("l")
+        private List<LinhaPosicaoGeral> linhas;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class VeiculoPrevisao {
         @JsonProperty("p")
         private String prefixo;
