@@ -189,10 +189,13 @@ Consulte [`.env.example`](.env.example). Nenhuma credencial real é versionada n
 # 1. Compilar e rodar todos os testes automatizados (perfil test)
 .\mvnw.cmd test
 
-# 2. Definir token da SPTrans na sessão (opcional, para endpoints Olho Vivo)
+# 2. Subir a API localmente no perfil H2 (padrão)
 $env:SPTRANS_TOKEN="SEU_TOKEN_AQUI"
+.\mvnw.cmd spring-boot:run
 
-# 3. Subir a API localmente (perfil h2 padrão)
+# 3. (Opcional) Testar conectividade e subir com o banco Oracle da FIAP (lendo .env)
+.\scripts\test-oracle.ps1
+. .\scripts\load-env.ps1
 .\mvnw.cmd spring-boot:run
 ```
 
@@ -213,3 +216,16 @@ $env:SPTRANS_TOKEN="SEU_TOKEN_AQUI"
 - [gs-devops-cloud](https://github.com/GS-EDUeAMIGOS/gs-devops-cloud) — DevOps Tools & Cloud Computing
 - [gs-iot-redes](https://github.com/GS-EDUeAMIGOS/gs-iot-redes) — Disruptive Architectures: IoT, IoB & Generative IA
 - [gs-database](https://github.com/GS-EDUeAMIGOS/gs-database) — Mastering Relational and Non-Relational Database
+
+---
+
+## 8. Declaração de Uso de IA Generativa
+
+Em conformidade com as diretrizes acadêmicas da **Global Solution FIAP**, declaramos de forma transparente como ferramentas de Inteligência Artificial Generativa foram utilizadas no ciclo de engenharia deste projeto:
+
+1. **Planejamento Arquitetural guiado por Engenharia de Software:**
+   - Utilizamos conceitos formais de Engenharia de Software (arquitetura em camadas, separação de responsabilidades — SRP/SOLID, modelagem relacional `1:N`, especificação de contratos RESTful, DTOs e segurança Stateless com JWT) para estruturar e planejar a solução em conjunto com assistentes de IA.
+2. **Implementação Otimizada com Modelos de Menor Custo:**
+   - Após a definição arquitetural e validação dos requisitos de domínio pela equipe, modelos mais leves e econômicos foram empregados como apoio produtivo na geração de *boilerplate*, escrita de testes automatizados (`MockMvc`), diagnóstico de erros de configuração (como variáveis de ambiente e integração JDBC Oracle) e revisão textual da documentação.
+3. **Revisão Crítica, Decisão Humana e Responsabilidade Técnica:**
+   - **Nenhum código foi entregue sem compreensão ou validação.** Cada classe, consulta (`Query Methods`, `@Query` JPQL e `Specification`), política de cache (`@Cacheable`/`@CacheEvict`) e regra de segurança foi revisada, testada e aprovada pelos integrantes do grupo, que detêm pleno domínio do funcionamento e assumem total responsabilidade técnica pelas decisões adotadas no projeto.
