@@ -16,6 +16,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -84,7 +85,8 @@ public class OcorrenciaController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Remover ocorrencia cidada (@CacheEvict)")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Remover ocorrencia cidada (somente ROLE_ADMIN, @CacheEvict)")
     public ResponseEntity<Void> remover(@PathVariable Long id) {
         ocorrenciaService.remover(id);
         return ResponseEntity.noContent().build();

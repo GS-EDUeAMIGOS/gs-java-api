@@ -105,6 +105,43 @@ class ViaCidadaApplicationTests {
         mockMvc.perform(delete("/api/sptrans/cache")
                         .header("Authorization", "Bearer " + tokenAdmin))
                 .andExpect(status().isNoContent());
+
+        MvcResult loginCidadaoResult = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(AuthDTO.LoginRequest.builder()
+                                .email("cidadao@viacidada.com.br")
+                                .senha("Cidadao@123")
+                                .build())))
+                .andExpect(status().isOk())
+                .andReturn();
+        Long cidadaoId = objectMapper.readTree(loginCidadaoResult.getResponse().getContentAsString())
+                .get("usuarioId").asLong();
+
+        OcorrenciaDTO.Request ocorrenciaParaTesteExclusao = OcorrenciaDTO.Request.builder()
+                .usuarioId(cidadaoId)
+                .titulo("Ocorrencia temporaria para teste RBAC")
+                .descricao("Validando que apenas ROLE_ADMIN pode excluir ocorrencias.")
+                .tipo(TipoOcorrencia.OUTROS)
+                .gravidade(NivelGravidade.BAIXA)
+                .afetaAcessibilidade(false)
+                .build();
+
+        MvcResult criadaResult = mockMvc.perform(post("/api/ocorrencias")
+                        .header("Authorization", "Bearer " + tokenCidadao)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(ocorrenciaParaTesteExclusao)))
+                .andExpect(status().isCreated())
+                .andReturn();
+        Long ocorrenciaCriadaId = objectMapper.readTree(criadaResult.getResponse().getContentAsString())
+                .get("id").asLong();
+
+        mockMvc.perform(delete("/api/ocorrencias/" + ocorrenciaCriadaId)
+                        .header("Authorization", "Bearer " + tokenCidadao))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(delete("/api/ocorrencias/" + ocorrenciaCriadaId)
+                        .header("Authorization", "Bearer " + tokenAdmin))
+                .andExpect(status().isNoContent());
     }
 
     @Test

@@ -74,6 +74,7 @@ public class SecurityConfig {
                                 "/api/ocorrencias/**"
                         ).permitAll()
                         .requestMatchers(HttpMethod.DELETE, "/api/sptrans/cache").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/ocorrencias/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/usuarios").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/usuarios/**").hasRole("ADMIN")
                         .requestMatchers("/api/usuarios/**").hasAnyRole("CIDADAO", "ADMIN")
