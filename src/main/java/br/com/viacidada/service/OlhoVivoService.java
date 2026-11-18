@@ -115,13 +115,13 @@ public class OlhoVivoService {
 
         String msg;
         if (maisProxima == null) {
-            msg = "Nenhuma parada encontrada nas imediacoes de " + localAtual.getNomeLocal() + ".";
+            msg = "Nenhuma parada encontrada nas imediações de " + localAtual.getNomeLocal() + ".";
         } else if (estaNoPonto) {
-            msg = "Voce ja esta no ponto! A parada " + maisProxima.getNomeParada()
-                    + " (" + maisProxima.getEndereco() + ") fica a apenas " + distMetros + "m de voce.";
+            msg = "Você já está no ponto. A parada " + maisProxima.getNomeParada()
+                    + " (" + maisProxima.getEndereco() + ") fica a apenas " + distMetros + " m de você.";
         } else {
             msg = "Local detectado: " + localAtual.getLogradouro() + " (" + localAtual.getBairro() + "). "
-                    + "O ponto mais proximo fica a " + distMetros + "m (~" + tempoCaminhada + " min a pe): "
+                    + "O ponto mais próximo fica a " + distMetros + " m (~" + tempoCaminhada + " min a pé): "
                     + maisProxima.getNomeParada() + " (" + maisProxima.getEndereco() + ").";
         }
 
@@ -309,7 +309,7 @@ public class OlhoVivoService {
             }
         }
 
-        String nomeExibicaoOrigem = montarNomeExibicaoLocal(localOrigem, usandoGps ? "Sua Localizacao" : termoOrigem);
+        String nomeExibicaoOrigem = montarNomeExibicaoLocal(localOrigem, usandoGps ? "Sua Localização" : termoOrigem);
         String nomeExibicaoDestino = montarNomeExibicaoLocal(localDestino, termoDestino);
 
         // Avaliar TODAS as candidatas diretas (limitando a 10 para proteger latencia) e ordenar pela MENOR caminhada antes de selecionar as top 2
@@ -392,8 +392,8 @@ public class OlhoVivoService {
                     "EMBARQUE_DIRETO",
                     paradaEmbarque != null
                             ? "Ponto: " + paradaEmbarque.getNomeParada() + " (" + paradaEmbarque.getEndereco() + ")"
-                            : "Ponto proximo a " + nomeExibicaoOrigem,
-                    "No ponto, pegue o onibus direto " + montarLetreiroCompleto(linhaDireta)
+                            : "Ponto próximo a " + nomeExibicaoOrigem,
+                    "No ponto, pegue o ônibus direto " + montarLetreiroCompleto(linhaDireta)
                             + " sentido " + formatarSentido(linhaDireta),
                     linhaDireta,
                     previsaoPorLinhaNaOrigem.get(linhaDireta.getCodigoLinha()),
@@ -419,7 +419,7 @@ public class OlhoVivoService {
                     .titulo("Linha Direta • " + montarLetreiroCompleto(linhaDireta))
                     .tipoRota("DIRETA")
                     .recomendada(false)
-                    .motivoRecomendacao("Caminhe " + distAteEstePonto + "m ate o ponto e pegue 1 unico onibus ate " + nomeExibicaoDestino)
+                    .motivoRecomendacao("Caminhe " + distAteEstePonto + " m até o ponto e pegue 1 único ônibus até " + nomeExibicaoDestino)
                     .totalOnibusNecessarios(1)
                     .tempoEstimadoMinutos(tempoEstimado)
                     .totalmenteAcessivelPcD(acessivel)
@@ -527,8 +527,8 @@ public class OlhoVivoService {
                     paradaEmbarque1 != null
                             ? "Ponto: " + paradaEmbarque1.getNomeParada() + " (" + paradaEmbarque1.getEndereco() + ")"
                             : "Ponto de partida em " + nomeExibicaoOrigem,
-                    "1º Onibus: Embarque na linha " + montarLetreiroCompleto(linha1Orientada)
-                            + " (" + formatarSentido(linha1Orientada) + ") ate " + par.pontoConexao,
+                    "1º Ônibus: Embarque na linha " + montarLetreiroCompleto(linha1Orientada)
+                            + " (" + formatarSentido(linha1Orientada) + ") até " + par.pontoConexao,
                     linha1Orientada,
                     previsaoPorLinhaNaOrigem.getOrDefault(
                             linha1Orientada.getCodigoLinha(),
@@ -540,9 +540,9 @@ public class OlhoVivoService {
             OlhoVivoDTO.PassoRota passo2 = construirPassoOnibus(
                     3,
                     "BALDEACAO",
-                    "Ponto de Baldeacao: " + par.pontoConexao,
-                    "2º Onibus (Baldeacao): Desca em " + par.pontoConexao
-                            + ", caminhe ate a parada da linha " + montarLetreiroCompleto(linha2Orientada)
+                    "Ponto de Baldeação: " + par.pontoConexao,
+                    "2º Ônibus (Baldeação): Desça em " + par.pontoConexao
+                            + ", caminhe até a parada da linha " + montarLetreiroCompleto(linha2Orientada)
                             + " (" + formatarSentido(linha2Orientada) + ") e embarque rumo a " + nomeExibicaoDestino,
                     linha2Orientada,
                     previsaoPorLinhaNoDestino.getOrDefault(
@@ -569,11 +569,11 @@ public class OlhoVivoService {
                     + (passo2.getOcorrenciasAbertas() != null ? passo2.getOcorrenciasAbertas() : 0);
 
             opcoes.add(OlhoVivoDTO.OpcaoRota.builder()
-                    .titulo("Baldeacao • " + montarLetreiroCompleto(par.linha1) + " ➔ " + montarLetreiroCompleto(par.linha2))
+                    .titulo("Baldeação • " + montarLetreiroCompleto(par.linha1) + " ➔ " + montarLetreiroCompleto(par.linha2))
                     .tipoRota("BALDEACAO")
                     .recomendada(false)
-                    .motivoRecomendacao("Caminhe " + distAteEstePonto + "m ate o ponto, pegue o " + montarLetreiroCompleto(par.linha1)
-                            + " e faca baldeacao em " + par.pontoConexao + " para o " + montarLetreiroCompleto(par.linha2))
+                    .motivoRecomendacao("Caminhe " + distAteEstePonto + " m até o ponto, pegue o " + montarLetreiroCompleto(par.linha1)
+                            + " e faça baldeação em " + par.pontoConexao + " para o " + montarLetreiroCompleto(par.linha2))
                     .totalOnibusNecessarios(2)
                     .tempoEstimadoMinutos(36 + minCaminhadaOrigem + minCaminhadaDestino + (countBaldeacao * 6))
                     .totalmenteAcessivelPcD(ambosAcessiveis)
@@ -600,17 +600,17 @@ public class OlhoVivoService {
             melhor.setRecomendada(true);
             int caminMelhor = extrairCaminhadaEmbarque(melhor);
             String descCaminhada = caminMelhor <= 600
-                    ? "caminhada curta (" + caminMelhor + "m)"
-                    : "caminhada de " + caminMelhor + "m ate o ponto";
+                    ? "caminhada curta (" + caminMelhor + " m)"
+                    : "caminhada de " + caminMelhor + " m até o ponto";
             if ("DIRETA".equals(melhor.getTipoRota())) {
                 melhor.setMotivoRecomendacao(
                         Boolean.TRUE.equals(melhor.getTotalmenteAcessivelPcD())
-                                ? "Melhor rota para " + nomeExibicaoDestino + ": " + descCaminhada + ", 1 unico onibus e frota PcD ativa!"
-                                : "Melhor rota para " + nomeExibicaoDestino + ": " + descCaminhada + " e 1 unico onibus direto."
+                                ? "Melhor rota para " + nomeExibicaoDestino + ": " + descCaminhada + ", 1 único ônibus e frota PcD ativa."
+                                : "Melhor rota para " + nomeExibicaoDestino + ": " + descCaminhada + " e 1 único ônibus direto."
                 );
             } else {
                 melhor.setMotivoRecomendacao(
-                        "Melhor rota para " + nomeExibicaoDestino + ": " + descCaminhada + " + baldeacao rapida."
+                        "Melhor rota para " + nomeExibicaoDestino + ": " + descCaminhada + " e baldeação rápida."
                 );
             }
 
@@ -785,11 +785,11 @@ public class OlhoVivoService {
     ) {
         String nomePonto = paradaEmbarque != null && paradaEmbarque.getNomeParada() != null && !paradaEmbarque.getNomeParada().isBlank()
                 ? paradaEmbarque.getNomeParada() + " (" + paradaEmbarque.getEndereco() + ")"
-                : "Ponto de embarque mais proximo";
+                : "Ponto de embarque mais próximo";
 
         String instrucao = distMetros <= 65
-                ? "Voce ja esta bem proximo (" + distMetros + "m)! Aguarde no ponto " + nomePonto
-                : "Saia de " + nomeOrigem + " e caminhe " + distMetros + " metros (~" + tempoMinutos + " min a pe) ate o ponto " + nomePonto;
+                ? "Você já está bem próximo (" + distMetros + " m). Aguarde no ponto " + nomePonto
+                : "Saia de " + nomeOrigem + " e caminhe " + distMetros + " m (~" + tempoMinutos + " min a pé) até o ponto " + nomePonto;
 
         return OlhoVivoDTO.PassoRota.builder()
                 .ordem(ordem)
@@ -805,8 +805,8 @@ public class OlhoVivoService {
                 .longitudeParada(paradaEmbarque != null ? paradaEmbarque.getLongitude() : null)
                 .pontoConfirmadoNaParada(false)
                 .codigoLinha(0)
-                .letreiroCompleto("A PE")
-                .descricaoSentido("Caminhada ate o ponto")
+                .letreiroCompleto("A PÉ")
+                .descricaoSentido("Caminhada até o ponto")
                 .veiculosCirculando(0)
                 .veiculosAcessiveisPcD(0)
                 .previsaoChegada("~" + tempoMinutos + " min de caminhada (" + distMetros + "m)")
@@ -837,7 +837,7 @@ public class OlhoVivoService {
                 : "";
 
         String instrucao = "Desembarque no ponto " + descricaoParada
-                + " e caminhe " + distMetros + " metros (~" + tempoMinutos + " min a pe) ate "
+                + " e caminhe " + distMetros + " m (~" + tempoMinutos + " min a pé) até "
                 + nomeDestino + detalheEnderecoDestino;
 
         return OlhoVivoDTO.PassoRota.builder()
@@ -858,7 +858,7 @@ public class OlhoVivoService {
                 .descricaoSentido(formatarSentido(linha))
                 .veiculosCirculando(passoAnterior.getVeiculosCirculando())
                 .veiculosAcessiveisPcD(passoAnterior.getVeiculosAcessiveisPcD())
-                .previsaoChegada("+" + tempoMinutos + " min a pe (" + distMetros + "m) ate " + nomeDestino)
+                .previsaoChegada("+" + tempoMinutos + " min a pé (" + distMetros + " m) até " + nomeDestino)
                 .ocorrenciasAbertas(0)
                 .build();
     }
@@ -1133,17 +1133,17 @@ public class OlhoVivoService {
         String alertaComunidade = null;
         if (!ocorrenciasAbertas.isEmpty()) {
             Ocorrencia maisRecente = ocorrenciasAbertas.get(0);
-            alertaComunidade = "Atencao: " + maisRecente.getTitulo() + " (" + maisRecente.getTipo().name() + ")";
+            alertaComunidade = "Atenção: " + maisRecente.getTitulo() + " (" + maisRecente.getTipo().name() + ")";
         }
 
         String previsaoTexto;
         if (previsaoParada != null && !previsaoParada.isBlank()) {
-            previsaoTexto = "Chegada prevista no ponto as " + previsaoParada;
+            previsaoTexto = "Chegada prevista no ponto às " + previsaoParada;
         } else if (circulando > 0) {
             int intervaloEstimado = Math.max(4, Math.min(15, 25 / circulando));
-            previsaoTexto = "Aprox. " + intervaloEstimado + " min (" + circulando + " onibus na rua agora)";
+            previsaoTexto = "Aprox. " + intervaloEstimado + " min (" + circulando + " ônibus na rua agora)";
         } else {
-            previsaoTexto = "Consulte horarios de partida do terminal";
+            previsaoTexto = "Consulte horários de partida do terminal";
         }
 
         return OlhoVivoDTO.PassoRota.builder()
@@ -1522,7 +1522,7 @@ public class OlhoVivoService {
         if (!tp.isBlank()) {
             return "Terminal / Ponto " + tp;
         }
-        return "Ponto de Integracao Central";
+        return "Ponto de Integração Central";
     }
 
     private List<OlhoVivoDTO.LinhaResumo> buscarLinhasComFallback(String termo) {

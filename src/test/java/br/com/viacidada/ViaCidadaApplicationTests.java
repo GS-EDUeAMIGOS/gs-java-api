@@ -16,8 +16,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -150,5 +152,45 @@ class ViaCidadaApplicationTests {
                         .param("destino", "PAULISTA"))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.message").value("Variavel de ambiente SPTRANS_TOKEN nao configurada."));
+    }
+
+    @Test
+    @DisplayName("Deve responder 200 OK em /api respeitando headers de proxy reverso (Azure HTTPS e localhost)")
+    void deveExporRaizDaApiComLinks() throws Exception {
+        mockMvc.perform(get("/api")
+                        .header("X-Forwarded-Proto", "https")
+                        .header("X-Forwarded-Host", "viacidada-3a46802b7054.eastus.cloudapp.azure.com"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.aplicacao").value("ViaCidada API"))
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.baseUrl").value("https://viacidada-3a46802b7054.eastus.cloudapp.azure.com/api"))
+                .andExpect(jsonPath("$.links.swaggerUi").value("https://viacidada-3a46802b7054.eastus.cloudapp.azure.com/swagger-ui/index.html"));
+    }
+
+    @Test
+    @DisplayName("Deve permitir preflight CORS para origem localhost e origem Azure")
+    void devePermitirCorsParaLocalhostEAzure() throws Exception {
+        mockMvc.perform(options("/api/auth/login")
+                        .header("Origin", "http://localhost:5173")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "Content-Type,Authorization"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:5173"));
+
+        mockMvc.perform(options("/api/auth/login")
+                        .header("Origin", "https://viacidada-3a46802b7054.eastus.cloudapp.azure.com")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "Content-Type,Authorization"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://viacidada-3a46802b7054.eastus.cloudapp.azure.com"));
+    }
+
+    @Test
+    @DisplayName("Deve expor servidores Azure e localhost na especificacao OpenAPI")
+    void deveExporServidoresAzureELocalhostNoOpenApi() throws Exception {
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("https://viacidada-3a46802b7054.eastus.cloudapp.azure.com")))
+                .andExpect(content().string(containsString("http://localhost:8080")));
     }
 }

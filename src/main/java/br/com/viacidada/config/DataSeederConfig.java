@@ -31,7 +31,7 @@ public class DataSeederConfig implements CommandLineRunner {
         log.info("Inicializando dados de demonstracao no banco H2 para o ViaCidada...");
 
         Usuario admin = usuarioRepository.save(Usuario.builder()
-                .nome("Administrador ViaCidada")
+                .nome("Administrador ViaCidadã")
                 .email("admin@viacidada.com.br")
                 .senha(passwordEncoder.encode("Admin@123"))
                 .role(Role.ROLE_ADMIN)
@@ -69,8 +69,8 @@ public class DataSeederConfig implements CommandLineRunner {
 
         alertaRepository.save(Alerta.builder()
                 .usuario(cidadao)
-                .titulo("Aviso de onibus acessivel na Paulista")
-                .mensagem("Notificar quando veiculo com elevador para cadeirante estiver a menos de 5 minutos.")
+                .titulo("Aviso de ônibus acessível na Paulista")
+                .mensagem("Notificar quando veículo com elevador para cadeirante estiver a menos de 5 minutos.")
                 .codigoLinha(2506)
                 .codigoParada(340015329L)
                 .somenteVeiculoAcessivel(true)
@@ -81,7 +81,7 @@ public class DataSeederConfig implements CommandLineRunner {
         ocorrenciaRepository.save(Ocorrencia.builder()
                 .usuario(cidadao)
                 .titulo("Elevador de acessibilidade travado")
-                .descricao("O veiculo prefixo 12540 da linha 8000-10 apresentou falha no elevador na Parada Paulista.")
+                .descricao("O veículo prefixo 12540 da linha 8000-10 apresentou falha no elevador na Parada Paulista.")
                 .tipo(TipoOcorrencia.ELEVADOR_INOPERANTE)
                 .status(StatusOcorrencia.ABERTA)
                 .gravidade(NivelGravidade.ALTA)
@@ -93,8 +93,8 @@ public class DataSeederConfig implements CommandLineRunner {
 
         ocorrenciaRepository.save(Ocorrencia.builder()
                 .usuario(admin)
-                .titulo("Piso tatil danificado na calcada da parada")
-                .descricao("Placas do piso tatil soltas proximo ao abrigo da parada 340015329.")
+                .titulo("Piso tátil danificado na calçada da parada")
+                .descricao("Placas do piso tátil soltas próximo ao abrigo da parada 340015329.")
                 .tipo(TipoOcorrencia.INFRAESTRUTURA_PARADA)
                 .status(StatusOcorrencia.CONFIRMADA)
                 .gravidade(NivelGravidade.MEDIA)
