@@ -185,18 +185,30 @@ fi
 __MVNW_QUIET_WGET=--quiet __MVNW_QUIET_CURL=--silent __MVNW_QUIET_UNZIP=-q __MVNW_QUIET_TAR=''
 [ "${MVNW_VERBOSE-}" != true ] || __MVNW_QUIET_WGET='' __MVNW_QUIET_CURL='' __MVNW_QUIET_UNZIP='' __MVNW_QUIET_TAR=v
 
+# If Maven is already installed on the system PATH (e.g. GitHub Actions runner) and MAVEN_HOME was not cached,
+# allow fallback to curl or system mvn if download from repo.maven.apache.org experiences a transient glitch.
 # normalize http auth
 case "${MVNW_PASSWORD:+has-password}" in
 '') MVNW_USERNAME='' MVNW_PASSWORD='' ;;
 has-password) [ -n "${MVNW_USERNAME-}" ] || MVNW_USERNAME='' MVNW_PASSWORD='' ;;
 esac
 
-if [ -z "${MVNW_USERNAME-}" ] && command -v wget >/dev/null; then
-  verbose "Found wget ... using wget"
-  wget ${__MVNW_QUIET_WGET:+"$__MVNW_QUIET_WGET"} "$distributionUrl" -O "$TMP_DOWNLOAD_DIR/$distributionUrlName" || die "wget: Failed to fetch $distributionUrl"
-elif [ -z "${MVNW_USERNAME-}" ] && command -v curl >/dev/null; then
+if [ -z "${MVNW_USERNAME-}" ] && command -v curl >/dev/null; then
   verbose "Found curl ... using curl"
-  curl ${__MVNW_QUIET_CURL:+"$__MVNW_QUIET_CURL"} -f -L -o "$TMP_DOWNLOAD_DIR/$distributionUrlName" "$distributionUrl" || die "curl: Failed to fetch $distributionUrl"
+  if ! curl ${__MVNW_QUIET_CURL:+"$__MVNW_QUIET_CURL"} --retry 5 --retry-all-errors --retry-delay 2 -f -L -o "$TMP_DOWNLOAD_DIR/$distributionUrlName" "$distributionUrl"; then
+    if command -v mvn >/dev/null; then
+      exec mvn "$@"
+    fi
+    die "curl: Failed to fetch $distributionUrl"
+  fi
+elif [ -z "${MVNW_USERNAME-}" ] && command -v wget >/dev/null; then
+  verbose "Found wget ... using wget"
+  if ! wget ${__MVNW_QUIET_WGET:+"$__MVNW_QUIET_WGET"} --tries=5 --waitretry=2 --retry-connrefused "$distributionUrl" -O "$TMP_DOWNLOAD_DIR/$distributionUrlName"; then
+    if command -v mvn >/dev/null; then
+      exec mvn "$@"
+    fi
+    die "wget: Failed to fetch $distributionUrl"
+  fi
 elif set_java_home; then
   verbose "Falling back to use Java to download"
   javaSource="$TMP_DOWNLOAD_DIR/Downloader.java"
