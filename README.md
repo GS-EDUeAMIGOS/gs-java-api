@@ -21,7 +21,7 @@ O backend atua como camada segura para o aplicativo mobile em Flutter ([gs-mobil
 | Marcos Vinicius de Jesus Almeida | 567214 | 2TDS |
 
 ### Vídeo Pitch (até 5 minutos)
-- **Link do Pitch (YouTube / Drive):** *(Inserir link público ou não listado após gravação)*
+- **Link do Pitch (YouTube):** [https://youtu.be/dzQINYoe1c8](https://youtu.be/dzQINYoe1c8)
 
 ### Conexão com os ODS da Agenda 2030 (ONU)
 - **ODS 10 — Redução das Desigualdades:** Amplia a autonomia de pessoas com deficiência (PcD) e mobilidade reduzida ao sinalizar ônibus com elevador acessível e ocorrências críticas de acessibilidade em paradas e veículos.
