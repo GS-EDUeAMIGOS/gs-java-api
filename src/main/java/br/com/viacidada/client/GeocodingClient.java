@@ -24,7 +24,13 @@ import java.util.*;
 @Slf4j
 public class GeocodingClient {
 
+    public static final long PREFIXO_PARADA_SINTETICA = 1_900_000_000L;
+
     private final RestClient restClient;
+
+    public static boolean isParadaSintetica(Long cp) {
+        return cp != null && cp >= PREFIXO_PARADA_SINTETICA;
+    }
 
     public GeocodingClient() {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
@@ -176,7 +182,8 @@ public class GeocodingClient {
                             .queryParam("q", "bus_stop")
                             .queryParam("format", "jsonv2")
                             .queryParam("addressdetails", 1)
-                            .queryParam("limit", 12)
+                            .queryParam("extratags", 1)
+                            .queryParam("limit", 16)
                             .queryParam("viewbox", viewbox)
                             .queryParam("bounded", 1)
                             .build())
@@ -190,40 +197,89 @@ public class GeocodingClient {
             List<OlhoVivoDTO.ParadaResumo> paradas = new ArrayList<>();
             long seq = 0;
             for (NominatimResult r : resultados) {
-                Double latP = parseDoubleSafe(r.getLat());
-                Double lonP = parseDoubleSafe(r.getLon());
-                if (latP == null || lonP == null || latP == 0.0 || lonP == 0.0) continue;
-
-                String road = r.getAddress() != null
-                        ? primeiroNaoVazio(r.getAddress(), "road", "pedestrian", "avenue", "street")
-                        : "";
-                String suburb = r.getAddress() != null
-                        ? primeiroNaoVazio(r.getAddress(), "suburb", "neighbourhood", "quarter")
-                        : "";
-
-                String nome = (r.getName() != null && !r.getName().isBlank())
-                        ? r.getName().toUpperCase(Locale.ROOT)
-                        : (!road.isBlank() ? "PONTO " + road.toUpperCase(Locale.ROOT) : "PONTO DE ONIBUS PROXIMO");
-                String endereco = !road.isBlank()
-                        ? road.toUpperCase(Locale.ROOT) + (!suburb.isBlank() ? " - " + suburb.toUpperCase(Locale.ROOT) : "")
-                        : (r.getDisplayName() != null ? r.getDisplayName() : nome);
-
-                long codigoSintetico = 90000000L + Math.abs((long) Objects.hash(
-                        Math.round(latP * 100000), Math.round(lonP * 100000), seq++));
-
-                paradas.add(OlhoVivoDTO.ParadaResumo.builder()
-                        .codigoParada(codigoSintetico)
-                        .nomeParada(nome)
-                        .endereco(endereco)
-                        .latitude(latP)
-                        .longitude(lonP)
-                        .build());
+                OlhoVivoDTO.ParadaResumo parada = converterNominatimParaParada(r, seq++);
+                if (parada != null) {
+                    paradas.add(parada);
+                }
             }
             return paradas;
         } catch (Exception ex) {
             log.debug("Nao foi possivel consultar paradas OSM proximas a ({}, {}): {}", latitude, longitude, ex.getMessage());
             return List.of();
         }
+    }
+
+    /**
+     * Converte um resultado do Nominatim (com extratags=1) em ParadaResumo,
+     * preservando gtfs_id oficial da SPTrans, route_ref exato da placa e referencia da esquina.
+     */
+    public OlhoVivoDTO.ParadaResumo converterNominatimParaParada(NominatimResult r, long seq) {
+        if (r == null) return null;
+        Double latP = parseDoubleSafe(r.getLat());
+        Double lonP = parseDoubleSafe(r.getLon());
+        if (latP == null || lonP == null || latP == 0.0 || lonP == 0.0) return null;
+
+        Map<String, String> tags = r.getExtratags() != null ? r.getExtratags() : Map.of();
+
+        String road = r.getAddress() != null
+                ? primeiroNaoVazio(r.getAddress(), "road", "pedestrian", "avenue", "street")
+                : "";
+        String suburb = r.getAddress() != null
+                ? primeiroNaoVazio(r.getAddress(), "suburb", "neighbourhood", "quarter")
+                : "";
+
+        String nome = (r.getName() != null && !r.getName().isBlank())
+                ? r.getName().toUpperCase(Locale.ROOT)
+                : (!road.isBlank() ? "PONTO " + road.toUpperCase(Locale.ROOT) : "PONTO DE ONIBUS PROXIMO");
+
+        String referencia = tags.getOrDefault("gtfs_stop_desc", tags.getOrDefault("description", "")).trim();
+        String baseEndereco = !road.isBlank()
+                ? road.toUpperCase(Locale.ROOT) + (!suburb.isBlank() ? " - " + suburb.toUpperCase(Locale.ROOT) : "")
+                : (r.getDisplayName() != null ? r.getDisplayName() : nome);
+        String endereco = (!referencia.isBlank() && !baseEndereco.toUpperCase(Locale.ROOT).contains(referencia.toUpperCase(Locale.ROOT)))
+                ? baseEndereco + " • " + referencia
+                : baseEndereco;
+
+        Long codigoParada = parseLongPositivo(tags.get("gtfs_id"));
+        if (codigoParada == null) {
+            codigoParada = parseLongPositivo(tags.get("ref"));
+        }
+        if (codigoParada == null) {
+            codigoParada = PREFIXO_PARADA_SINTETICA
+                    + (Integer.toUnsignedLong(Objects.hash(
+                            Math.round(latP * 100000), Math.round(lonP * 100000), seq)) % 99_999_999L);
+        }
+
+        List<String> letreirosNoPonto = extrairLetreirosRouteRef(tags.get("route_ref"));
+
+        return OlhoVivoDTO.ParadaResumo.builder()
+                .codigoParada(codigoParada)
+                .nomeParada(nome)
+                .endereco(endereco)
+                .latitude(latP)
+                .longitude(lonP)
+                .letreirosNoPonto(letreirosNoPonto)
+                .build();
+    }
+
+    private Long parseLongPositivo(String valor) {
+        if (valor == null || valor.isBlank()) return null;
+        try {
+            long parsed = Long.parseLong(valor.trim());
+            return parsed > 0 ? parsed : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private List<String> extrairLetreirosRouteRef(String routeRef) {
+        if (routeRef == null || routeRef.isBlank()) return List.of();
+        return Arrays.stream(routeRef.split("[;,|]+"))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(s -> s.toUpperCase(Locale.ROOT))
+                .distinct()
+                .toList();
     }
 
     private void enriquecerLogradouroPorCoordenada(OlhoVivoDTO.LocalResolvido local) {
@@ -721,5 +777,8 @@ public class GeocodingClient {
 
         @JsonProperty("address")
         private Map<String, Object> address;
+
+        @JsonProperty("extratags")
+        private Map<String, String> extratags;
     }
 }

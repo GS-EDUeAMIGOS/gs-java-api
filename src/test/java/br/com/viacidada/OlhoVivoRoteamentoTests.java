@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -265,5 +266,102 @@ class OlhoVivoRoteamentoTests {
         assertEquals("TERM. PINHEIROS ➔ SACOMÃ", passoOnibus.getDescricaoSentido(),
                 "Para ir do Cambuci ao Hospital Heliopolis (Sacoma), o sentido deve ser TERM. PINHEIROS -> SACOMA");
         assertTrue(passoOnibus.getInstrucao().contains("TERM. PINHEIROS ➔ SACOMÃ"));
+    }
+
+    @Test
+    @DisplayName("GeocodingClient deve extrair gtfs_id oficial (9 digitos nao sintetico), route_ref e referencia da esquina")
+    void deveExtrairGtfsIdERouteRefDoNominatim() {
+        GeocodingClient clientReal = new GeocodingClient();
+
+        GeocodingClient.NominatimResult r = new GeocodingClient.NominatimResult();
+        r.setName("Ponto Rua Heitor Peixoto");
+        r.setLat("-23.5754");
+        r.setLon("-46.6187");
+        r.setAddress(Map.of("road", "Rua Heitor Peixoto", "suburb", "Cambuci"));
+        r.setExtratags(Map.of(
+                "gtfs_id", "140016034",
+                "route_ref", "407M-10;4111-10",
+                "gtfs_stop_desc", "Ref.: R Heitor Peixoto/ R Basilio Da Cunha"
+        ));
+
+        OlhoVivoDTO.ParadaResumo parada = clientReal.converterNominatimParaParada(r, 0);
+        assertNotNull(parada);
+        assertEquals(140016034L, parada.getCodigoParada());
+        assertFalse(GeocodingClient.isParadaSintetica(parada.getCodigoParada()));
+        assertFalse(GeocodingClient.isParadaSintetica(920016190L));
+        assertEquals(List.of("407M-10", "4111-10"), parada.getLetreirosNoPonto());
+        assertTrue(parada.getEndereco().contains("Ref.: R Heitor Peixoto/ R Basilio Da Cunha"));
+
+        // Sem gtfs_id -> gera ID sintetico >= 1_900_000_000L
+        GeocodingClient.NominatimResult semGtfs = new GeocodingClient.NominatimResult();
+        semGtfs.setName("Ponto Sem GTFS");
+        semGtfs.setLat("-23.5760");
+        semGtfs.setLon("-46.6190");
+        OlhoVivoDTO.ParadaResumo paradaSintetica = clientReal.converterNominatimParaParada(semGtfs, 1);
+        assertNotNull(paradaSintetica);
+        assertTrue(GeocodingClient.isParadaSintetica(paradaSintetica.getCodigoParada()));
+    }
+
+    @Test
+    @DisplayName("OlhoVivoService deve consolidar todas as linhas do route_ref mesmo quando /Previsao/Parada retornar p == null")
+    void deveConsolidarLinhasDoRouteRefMesmoSemPrevisaoImediata() {
+        when(olhoVivoClient.buscarPrevisoesPorParada(140016034L))
+                .thenReturn(OlhoVivoDTO.PrevisaoParadaResponse.builder().horarioReferencia("23:45").parada(null).build());
+        when(olhoVivoClient.buscarLinhas("407M-10")).thenReturn(List.of(
+                OlhoVivoDTO.LinhaResumo.builder()
+                        .codigoLinha(101)
+                        .letreiroNumerico("407M")
+                        .modoAtendimento(10)
+                        .sentido(1)
+                        .terminalPrincipal("METRÔ VILA MARIANA")
+                        .terminalSecundario("LGO. CAMBUCI")
+                        .build()
+        ));
+        when(olhoVivoClient.buscarLinhas("4111-10")).thenReturn(List.of());
+
+        OlhoVivoDTO.PrevisaoParadaResponse resposta = olhoVivoService.buscarLinhasDaParada(
+                140016034L, List.of("407M-10", "4111-10"));
+
+        assertNotNull(resposta);
+        assertNotNull(resposta.getParada());
+        assertEquals(2, resposta.getParada().getLinhas().size());
+        assertEquals("407M-10", resposta.getParada().getLinhas().get(0).getLetreiroCompleto());
+        assertEquals("METRÔ VILA MARIANA", resposta.getParada().getLinhas().get(0).getDestino());
+        assertEquals("4111-10", resposta.getParada().getLinhas().get(1).getLetreiroCompleto());
+    }
+
+    @Test
+    @DisplayName("OlhoVivoService deve acionar fallback geocodificado ao buscar paradas por nome de rua de bairro (ex.: Eiras Garcia)")
+    void deveAcionarFallbackGeocodificadoNaBuscaDeParadasPorTexto() {
+        when(olhoVivoClient.buscarParadas("Eiras Garcia")).thenReturn(List.of());
+        when(geocodingClient.limparTermoParaSptrans(anyString())).thenAnswer(inv -> inv.getArgument(0));
+        when(geocodingClient.resolverLocalPorNome("Eiras Garcia")).thenReturn(
+                OlhoVivoDTO.LocalResolvido.builder()
+                        .termoOriginal("Eiras Garcia")
+                        .nomeLocal("Rua Eiras Garcia")
+                        .logradouro("Rua Eiras Garcia")
+                        .bairro("Cambuci")
+                        .termoBuscaSptrans("CAMBUCI")
+                        .termosCandidatosSptrans(new ArrayList<>(List.of("CAMBUCI")))
+                        .latitude(-23.5746)
+                        .longitude(-46.6187)
+                        .build()
+        );
+        when(olhoVivoClient.buscarParadas("CAMBUCI")).thenReturn(List.of());
+        when(geocodingClient.buscarParadasReaisProximas(-23.5746, -46.6187)).thenReturn(List.of(
+                OlhoVivoDTO.ParadaResumo.builder()
+                        .codigoParada(140016034L)
+                        .nomeParada("PONTO RUA HEITOR PEIXOTO")
+                        .endereco("RUA HEITOR PEIXOTO - CAMBUCI")
+                        .latitude(-23.5754)
+                        .longitude(-46.6187)
+                        .letreirosNoPonto(List.of("407M-10", "4111-10"))
+                        .build()
+        ));
+
+        List<OlhoVivoDTO.ParadaResumo> resultado = olhoVivoService.buscarParadas("Eiras Garcia");
+        assertFalse(resultado.isEmpty());
+        assertEquals(140016034L, resultado.get(0).getCodigoParada());
+        assertEquals(List.of("407M-10", "4111-10"), resultado.get(0).getLetreirosNoPonto());
     }
 }

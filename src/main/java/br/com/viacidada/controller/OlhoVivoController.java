@@ -57,9 +57,18 @@ public class OlhoVivoController {
     }
 
     @GetMapping("/paradas/{codigo}/previsoes")
-    @Operation(summary = "Consultar previsao de chegada dos veiculos em uma parada especifica")
+    @Operation(summary = "Consultar previsao de chegada e linhas consolidadas de uma parada especifica")
     public ResponseEntity<OlhoVivoDTO.PrevisaoParadaResponse> buscarPrevisoesPorParada(@PathVariable Long codigo) {
         return ResponseEntity.ok(olhoVivoService.buscarPrevisoesPorParada(codigo));
+    }
+
+    @GetMapping("/paradas/{codigo}/linhas")
+    @Operation(summary = "Listar todas as linhas que passam no ponto (combinando /Previsao/Parada + route_ref oficial)")
+    public ResponseEntity<OlhoVivoDTO.PrevisaoParadaResponse> buscarLinhasDaParada(
+            @PathVariable Long codigo,
+            @RequestParam(required = false) List<String> letreiros
+    ) {
+        return ResponseEntity.ok(olhoVivoService.buscarLinhasDaParada(codigo, letreiros));
     }
 
     @GetMapping("/locais/buscar")

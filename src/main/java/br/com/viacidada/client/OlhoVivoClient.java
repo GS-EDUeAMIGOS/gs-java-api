@@ -10,9 +10,11 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 @Component
 @Slf4j
@@ -68,8 +70,7 @@ public class OlhoVivoClient {
     }
 
     public List<OlhoVivoDTO.LinhaResumo> buscarLinhas(String termo) {
-        try {
-            garantirSessao();
+        return executarComSessao(() -> {
             List<OlhoVivoDTO.LinhaResumo> resultado = restClient.get()
                     .uri(uriBuilder -> uriBuilder
                             .path("/Linha/Buscar")
@@ -79,49 +80,32 @@ public class OlhoVivoClient {
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
             return resultado != null ? resultado : List.of();
-        } catch (ExternalIntegrationException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new ExternalIntegrationException("Erro ao consultar linhas na API Olho Vivo: " + ex.getMessage(), ex);
-        }
+        }, "Erro ao consultar linhas na API Olho Vivo: ");
     }
 
     public OlhoVivoDTO.PosicaoLinhaResponse buscarVeiculosPorLinha(Integer codigoLinha) {
-        try {
-            garantirSessao();
-            return restClient.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .path("/Posicao/Linha")
-                            .queryParam("codigoLinha", codigoLinha)
-                            .build())
-                    .header(HttpHeaders.COOKIE, sessionCookie)
-                    .retrieve()
-                    .body(OlhoVivoDTO.PosicaoLinhaResponse.class);
-        } catch (ExternalIntegrationException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new ExternalIntegrationException("Erro ao consultar posicao dos veiculos na API Olho Vivo: " + ex.getMessage(), ex);
-        }
+        return executarComSessao(() -> restClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/Posicao/Linha")
+                        .queryParam("codigoLinha", codigoLinha)
+                        .build())
+                .header(HttpHeaders.COOKIE, sessionCookie)
+                .retrieve()
+                .body(OlhoVivoDTO.PosicaoLinhaResponse.class),
+                "Erro ao consultar posicao dos veiculos na API Olho Vivo: ");
     }
 
     public OlhoVivoDTO.PosicaoGeralResponse buscarTodasPosicoes() {
-        try {
-            garantirSessao();
-            return restClient.get()
-                    .uri("/Posicao")
-                    .header(HttpHeaders.COOKIE, sessionCookie)
-                    .retrieve()
-                    .body(OlhoVivoDTO.PosicaoGeralResponse.class);
-        } catch (ExternalIntegrationException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new ExternalIntegrationException("Erro ao consultar radar geral de veiculos na API Olho Vivo: " + ex.getMessage(), ex);
-        }
+        return executarComSessao(() -> restClient.get()
+                .uri("/Posicao")
+                .header(HttpHeaders.COOKIE, sessionCookie)
+                .retrieve()
+                .body(OlhoVivoDTO.PosicaoGeralResponse.class),
+                "Erro ao consultar radar geral de veiculos na API Olho Vivo: ");
     }
 
     public List<OlhoVivoDTO.ParadaResumo> buscarParadas(String termo) {
-        try {
-            garantirSessao();
+        return executarComSessao(() -> {
             List<OlhoVivoDTO.ParadaResumo> resultado = restClient.get()
                     .uri(uriBuilder -> uriBuilder
                             .path("/Parada/Buscar")
@@ -131,16 +115,11 @@ public class OlhoVivoClient {
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
             return resultado != null ? resultado : List.of();
-        } catch (ExternalIntegrationException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new ExternalIntegrationException("Erro ao consultar paradas na API Olho Vivo: " + ex.getMessage(), ex);
-        }
+        }, "Erro ao consultar paradas na API Olho Vivo: ");
     }
 
     public List<OlhoVivoDTO.ParadaResumo> buscarParadasPorLinha(Integer codigoLinha) {
-        try {
-            garantirSessao();
+        return executarComSessao(() -> {
             List<OlhoVivoDTO.ParadaResumo> resultado = restClient.get()
                     .uri(uriBuilder -> uriBuilder
                             .path("/Parada/BuscarParadasPorLinha")
@@ -150,28 +129,40 @@ public class OlhoVivoClient {
                     .retrieve()
                     .body(new ParameterizedTypeReference<>() {});
             return resultado != null ? resultado : List.of();
-        } catch (ExternalIntegrationException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new ExternalIntegrationException("Erro ao consultar paradas da linha na API Olho Vivo: " + ex.getMessage(), ex);
-        }
+        }, "Erro ao consultar paradas da linha na API Olho Vivo: ");
     }
 
     public OlhoVivoDTO.PrevisaoParadaResponse buscarPrevisoesPorParada(Long codigoParada) {
+        return executarComSessao(() -> restClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/Previsao/Parada")
+                        .queryParam("codigoParada", codigoParada)
+                        .build())
+                .header(HttpHeaders.COOKIE, sessionCookie)
+                .retrieve()
+                .body(OlhoVivoDTO.PrevisaoParadaResponse.class),
+                "Erro ao consultar previsao de parada na API Olho Vivo: ");
+    }
+
+    private <T> T executarComSessao(Supplier<T> acao, String prefixoErro) {
         try {
             garantirSessao();
-            return restClient.get()
-                    .uri(uriBuilder -> uriBuilder
-                            .path("/Previsao/Parada")
-                            .queryParam("codigoParada", codigoParada)
-                            .build())
-                    .header(HttpHeaders.COOKIE, sessionCookie)
-                    .retrieve()
-                    .body(OlhoVivoDTO.PrevisaoParadaResponse.class);
+            return acao.get();
+        } catch (HttpClientErrorException.Unauthorized | HttpClientErrorException.Forbidden ex) {
+            log.info("Sessao SPTrans expirada ({}). Renovando cookie automaticamente...", ex.getStatusCode());
+            this.sessionCookie = null;
+            try {
+                autenticar();
+                return acao.get();
+            } catch (ExternalIntegrationException extEx) {
+                throw extEx;
+            } catch (Exception retryEx) {
+                throw new ExternalIntegrationException(prefixoErro + retryEx.getMessage(), retryEx);
+            }
         } catch (ExternalIntegrationException ex) {
             throw ex;
         } catch (Exception ex) {
-            throw new ExternalIntegrationException("Erro ao consultar previsao de parada na API Olho Vivo: " + ex.getMessage(), ex);
+            throw new ExternalIntegrationException(prefixoErro + ex.getMessage(), ex);
         }
     }
 

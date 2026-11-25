@@ -62,6 +62,9 @@ public final class OlhoVivoDTO {
 
         @JsonProperty("px")
         private Double longitude;
+
+        @Builder.Default
+        private List<String> letreirosNoPonto = List.of();
     }
 
     @Data

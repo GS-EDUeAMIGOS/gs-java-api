@@ -17,6 +17,7 @@ import java.text.Normalizer;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -29,6 +30,7 @@ public class OlhoVivoService {
 
     private volatile OlhoVivoDTO.PosicaoGeralResponse cachePosicaoGeral;
     private volatile long timestampCachePosicaoGeralMs = 0L;
+    private final Map<Long, OlhoVivoDTO.ParadaResumo> cacheMetadadosParada = new ConcurrentHashMap<>();
 
     @Cacheable(value = CacheConfig.CACHE_LINHAS_SPTRANS, key = "#termo != null ? #termo.trim().toLowerCase() : 'todas'")
     public List<OlhoVivoDTO.LinhaResumo> buscarLinhas(String termo) {
@@ -41,18 +43,39 @@ public class OlhoVivoService {
 
     @Cacheable(value = CacheConfig.CACHE_PARADAS_SPTRANS, key = "#termo != null ? #termo.trim().toLowerCase() : 'todas'")
     public List<OlhoVivoDTO.ParadaResumo> buscarParadas(String termo) {
-        return olhoVivoClient.buscarParadas(termo);
+        List<OlhoVivoDTO.ParadaResumo> paradas = olhoVivoClient.buscarParadas(termo);
+        if ((paradas == null || paradas.isEmpty()) && termo != null && !termo.isBlank()) {
+            try {
+                OlhoVivoDTO.LocalResolvido local = geocodingClient.resolverLocalPorNome(termo);
+                if (local != null && local.getLatitude() != null && local.getLongitude() != null
+                        && local.getLatitude() != 0.0 && local.getLongitude() != 0.0) {
+                    List<String> termos = montarListaTermosLocal(local, termo);
+                    paradas = combinarParadasOrdenadasPorProximidade(
+                            local.getLatitude(),
+                            local.getLongitude(),
+                            termos
+                    ).stream().limit(12).toList();
+                }
+            } catch (Exception ex) {
+                log.debug("Fallback geocodificado de paradas por termo '{}' falhou: {}", termo, ex.getMessage());
+            }
+        }
+        List<OlhoVivoDTO.ParadaResumo> resultado = paradas != null ? paradas : List.of();
+        registrarMetadadosParada(resultado);
+        return resultado;
     }
 
     @Cacheable(value = CacheConfig.CACHE_PARADAS_SPTRANS, key = "'linha_' + #codigoLinha + '_' + (#termo != null ? #termo.trim().toLowerCase() : '')")
     public List<OlhoVivoDTO.ParadaResumo> buscarParadasPorLinha(Integer codigoLinha, String termo) {
         List<OlhoVivoDTO.ParadaResumo> paradasDaLinha = olhoVivoClient.buscarParadasPorLinha(codigoLinha);
         if (paradasDaLinha != null && !paradasDaLinha.isEmpty()) {
+            registrarMetadadosParada(paradasDaLinha);
             return paradasDaLinha;
         }
         if (termo != null && !termo.isBlank()) {
             List<OlhoVivoDTO.ParadaResumo> porTermo = buscarParadasComFallback(termo);
             if (!porTermo.isEmpty()) {
+                registrarMetadadosParada(porTermo);
                 return porTermo;
             }
         }
@@ -60,7 +83,165 @@ public class OlhoVivoService {
     }
 
     public OlhoVivoDTO.PrevisaoParadaResponse buscarPrevisoesPorParada(Long codigoParada) {
-        return olhoVivoClient.buscarPrevisoesPorParada(codigoParada);
+        return buscarLinhasDaParada(codigoParada, List.of());
+    }
+
+    /**
+     * Consolida todas as linhas que atendem uma parada especifica sem depender de raios:
+     * Fonte A: /Previsao/Parada oficial da SPTrans (quando a parada possui gtfs_id oficial)
+     * Fonte B: route_ref exato da placa do ponto (via cacheMetadadosParada ou query param do app)
+     */
+    public OlhoVivoDTO.PrevisaoParadaResponse buscarLinhasDaParada(
+            Long codigoParada,
+            List<String> letreirosInformados
+    ) {
+        OlhoVivoDTO.PrevisaoParadaResponse respostaSptrans = null;
+        if (codigoParada != null && !GeocodingClient.isParadaSintetica(codigoParada)) {
+            try {
+                respostaSptrans = olhoVivoClient.buscarPrevisoesPorParada(codigoParada);
+            } catch (Exception ex) {
+                log.debug("Consulta /Previsao/Parada indisponivel para {}: {}", codigoParada, ex.getMessage());
+            }
+        }
+
+        OlhoVivoDTO.ParadaResumo meta = codigoParada != null ? cacheMetadadosParada.get(codigoParada) : null;
+        OlhoVivoDTO.ParadaComPrevisoes paradaSptrans = respostaSptrans != null ? respostaSptrans.getParada() : null;
+
+        Map<String, OlhoVivoDTO.LinhaPrevisao> linhasConsolidadas = new LinkedHashMap<>();
+        if (paradaSptrans != null && paradaSptrans.getLinhas() != null) {
+            for (OlhoVivoDTO.LinhaPrevisao lp : paradaSptrans.getLinhas()) {
+                if (lp == null) continue;
+                String chave = (lp.getLetreiroCompleto() != null && !lp.getLetreiroCompleto().isBlank())
+                        ? lp.getLetreiroCompleto().trim().toUpperCase(Locale.ROOT)
+                        : String.valueOf(lp.getCodigoLinha());
+                linhasConsolidadas.putIfAbsent(chave, lp);
+            }
+        }
+
+        Set<String> letreirosNoPonto = new LinkedHashSet<>();
+        if (meta != null && meta.getLetreirosNoPonto() != null) {
+            for (String l : meta.getLetreirosNoPonto()) {
+                if (l != null && !l.isBlank()) {
+                    letreirosNoPonto.add(l.trim().toUpperCase(Locale.ROOT));
+                }
+            }
+        }
+        if (letreirosInformados != null) {
+            for (String item : letreirosInformados) {
+                if (item == null || item.isBlank()) continue;
+                for (String parte : item.split("[;,|]+")) {
+                    String limpo = parte.trim().toUpperCase(Locale.ROOT);
+                    if (!limpo.isEmpty()) {
+                        letreirosNoPonto.add(limpo);
+                    }
+                }
+            }
+        }
+
+        String nomeParada = paradaSptrans != null && paradaSptrans.getNomeParada() != null
+                ? paradaSptrans.getNomeParada()
+                : (meta != null ? meta.getNomeParada() : "Parada " + codigoParada);
+
+        for (String letreiro : letreirosNoPonto) {
+            if (linhasConsolidadas.containsKey(letreiro)) {
+                continue;
+            }
+            OlhoVivoDTO.LinhaPrevisao linhaResolvida = resolverLinhaPorLetreiro(letreiro, nomeParada);
+            linhasConsolidadas.put(letreiro, linhaResolvida);
+        }
+
+        Double lat = paradaSptrans != null && paradaSptrans.getLatitude() != null
+                ? paradaSptrans.getLatitude()
+                : (meta != null ? meta.getLatitude() : null);
+        Double lon = paradaSptrans != null && paradaSptrans.getLongitude() != null
+                ? paradaSptrans.getLongitude()
+                : (meta != null ? meta.getLongitude() : null);
+
+        String horarioRef = respostaSptrans != null && respostaSptrans.getHorarioReferencia() != null
+                ? respostaSptrans.getHorarioReferencia()
+                : LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
+
+        return OlhoVivoDTO.PrevisaoParadaResponse.builder()
+                .horarioReferencia(horarioRef)
+                .parada(OlhoVivoDTO.ParadaComPrevisoes.builder()
+                        .codigoParada(codigoParada)
+                        .nomeParada(nomeParada)
+                        .latitude(lat)
+                        .longitude(lon)
+                        .linhas(new ArrayList<>(linhasConsolidadas.values()))
+                        .build())
+                .build();
+    }
+
+    private OlhoVivoDTO.LinhaPrevisao resolverLinhaPorLetreiro(String letreiro, String nomeParada) {
+        try {
+            List<OlhoVivoDTO.LinhaResumo> candidatas = buscarLinhas(letreiro);
+            if (candidatas != null && !candidatas.isEmpty()) {
+                List<OlhoVivoDTO.LinhaResumo> exatas = candidatas.stream()
+                        .filter(l -> montarLetreiroCompleto(l).equalsIgnoreCase(letreiro))
+                        .toList();
+                List<OlhoVivoDTO.LinhaResumo> pool = exatas.isEmpty() ? candidatas : exatas;
+
+                Integer sentidoPreferido = null;
+                String nomeUpper = nomeParada != null ? nomeParada.toUpperCase(Locale.ROOT) : "";
+                if (nomeUpper.contains("B/C")) {
+                    sentidoPreferido = 1;
+                } else if (nomeUpper.contains("C/B")) {
+                    sentidoPreferido = 2;
+                }
+
+                OlhoVivoDTO.LinhaResumo escolhida = pool.get(0);
+                if (sentidoPreferido != null) {
+                    final int sp = sentidoPreferido;
+                    escolhida = pool.stream()
+                            .filter(l -> Integer.valueOf(sp).equals(l.getSentido()))
+                            .findFirst()
+                            .orElse(escolhida);
+                }
+
+                return OlhoVivoDTO.LinhaPrevisao.builder()
+                        .codigoLinha(escolhida.getCodigoLinha() != null ? escolhida.getCodigoLinha() : 0)
+                        .letreiroCompleto(letreiro)
+                        .sentido(escolhida.getSentido() != null ? escolhida.getSentido() : 1)
+                        .destino(escolhida.getTerminalPrincipal() != null ? escolhida.getTerminalPrincipal() : "")
+                        .origem(escolhida.getTerminalSecundario() != null ? escolhida.getTerminalSecundario() : "")
+                        .quantidadeVeiculos(0)
+                        .veiculos(List.of())
+                        .build();
+            }
+        } catch (Exception ex) {
+            log.debug("Nao foi possivel detalhar letreiro '{}' na SPTrans: {}", letreiro, ex.getMessage());
+        }
+
+        return OlhoVivoDTO.LinhaPrevisao.builder()
+                .codigoLinha(0)
+                .letreiroCompleto(letreiro)
+                .sentido(1)
+                .destino("")
+                .origem("")
+                .quantidadeVeiculos(0)
+                .veiculos(List.of())
+                .build();
+    }
+
+    private void registrarMetadadosParada(List<OlhoVivoDTO.ParadaResumo> paradas) {
+        if (paradas == null) return;
+        for (OlhoVivoDTO.ParadaResumo p : paradas) {
+            if (p == null || p.getCodigoParada() == null) continue;
+            cacheMetadadosParada.merge(p.getCodigoParada(), p, (antigo, novo) -> {
+                List<String> letreiros = (novo.getLetreirosNoPonto() != null && !novo.getLetreirosNoPonto().isEmpty())
+                        ? novo.getLetreirosNoPonto()
+                        : antigo.getLetreirosNoPonto();
+                return OlhoVivoDTO.ParadaResumo.builder()
+                        .codigoParada(novo.getCodigoParada())
+                        .nomeParada(novo.getNomeParada() != null && !novo.getNomeParada().isBlank() ? novo.getNomeParada() : antigo.getNomeParada())
+                        .endereco(novo.getEndereco() != null && !novo.getEndereco().isBlank() ? novo.getEndereco() : antigo.getEndereco())
+                        .latitude(novo.getLatitude() != null ? novo.getLatitude() : antigo.getLatitude())
+                        .longitude(novo.getLongitude() != null ? novo.getLongitude() : antigo.getLongitude())
+                        .letreirosNoPonto(letreiros != null ? letreiros : List.of())
+                        .build();
+            });
+        }
     }
 
     public List<OlhoVivoDTO.LocalResolvido> buscarSugestoesLocais(String termo) {
@@ -682,9 +863,9 @@ public class OlhoVivoService {
                 }
             }
 
-            // Paradas sinteticas do OSM (>= 90000000) nao existem no endpoint /Previsao/Parada da SPTrans;
+            // Paradas sinteticas do OSM (>= 1_900_000_000) nao existem no endpoint /Previsao/Parada da SPTrans;
             // suas linhas sao descobertas pelo radar espacial /Posicao.
-            if (parada.getCodigoParada() >= 90000000L) continue;
+            if (GeocodingClient.isParadaSintetica(parada.getCodigoParada())) continue;
 
             inspecionadas++;
             try {
@@ -964,6 +1145,7 @@ public class OlhoVivoService {
         }
 
         List<OlhoVivoDTO.ParadaResumo> lista = new ArrayList<>(mapa.values());
+        registrarMetadadosParada(lista);
         if (temCoordenadaValida) {
             lista.sort(Comparator.comparingDouble(
                     p -> GeocodingClient.calcularDistanciaMetros(
@@ -1553,16 +1735,16 @@ public class OlhoVivoService {
         if (PALAVRAS_IGNORADAS_PARADA.contains(normalizarTexto(termoInicial))) {
             return Collections.emptyList();
         }
-        List<OlhoVivoDTO.ParadaResumo> lista = buscarParadas(termoInicial);
+        List<OlhoVivoDTO.ParadaResumo> lista = olhoVivoClient.buscarParadas(termoInicial);
         if (lista.isEmpty() && !termoInicial.equalsIgnoreCase(termo.trim())) {
-            lista = buscarParadas(termo.trim());
+            lista = olhoVivoClient.buscarParadas(termo.trim());
         }
         if (lista.isEmpty()) {
             String[] partes = normalizarTexto(termo).split("[\\s/➔\\-.,]+");
             for (int i = 0; i < partes.length; i++) {
                 String p = partes[i].trim();
                 if (p.length() >= 4 && !PALAVRAS_IGNORADAS_PARADA.contains(p)) {
-                    lista = buscarParadas(p);
+                    lista = olhoVivoClient.buscarParadas(p);
                     if (!lista.isEmpty()) break;
                 }
             }
