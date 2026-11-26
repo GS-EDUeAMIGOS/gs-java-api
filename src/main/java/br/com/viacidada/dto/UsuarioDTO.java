@@ -9,6 +9,7 @@ import org.springframework.hateoas.RepresentationModel;
 
 import java.time.LocalDateTime;
 
+// Define o formato JSON de entrada (Request) e saida (Response) de usuarios, sem expor a senha.
 public final class UsuarioDTO {
 
     private UsuarioDTO() {

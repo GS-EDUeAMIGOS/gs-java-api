@@ -5,6 +5,7 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
+// Entidade JPA que representa a tabela tb_vc_linha_favorita (linhas de onibus salvas pelo usuario).
 @Entity
 @Table(name = "tb_vc_linha_favorita")
 @Getter

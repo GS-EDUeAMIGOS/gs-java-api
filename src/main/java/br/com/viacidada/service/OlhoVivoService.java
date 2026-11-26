@@ -19,6 +19,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+// Orquestra as buscas de linhas, paradas, veiculos e rotas combinando SPTrans Olho Vivo, geocodificacao e cache.
 @Service
 @RequiredArgsConstructor
 @Slf4j

@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+// Executa as regras de negocio, transacoes e cache dos alertas do cidadao.
 @Service
 @RequiredArgsConstructor
 public class AlertaService {

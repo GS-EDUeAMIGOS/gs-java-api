@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
 
+// Faz o acesso ao banco de dados para a tabela de usuarios (busca por e-mail, verificacao de duplicidade e JPQL).
 @Repository
 public interface UsuarioRepository extends JpaRepository<Usuario, Long> {
 

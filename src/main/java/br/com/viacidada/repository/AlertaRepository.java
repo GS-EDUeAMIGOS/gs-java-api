@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
+// Faz o acesso ao banco de dados para a tabela de alertas (CRUD, Query Methods e JPQL).
 @Repository
 public interface AlertaRepository extends JpaRepository<Alerta, Long> {
 

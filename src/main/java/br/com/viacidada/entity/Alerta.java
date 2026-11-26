@@ -5,6 +5,7 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
+// Entidade JPA que representa a tabela tb_vc_alerta (alertas personalizados configurados pelo usuario).
 @Entity
 @Table(name = "tb_vc_alerta")
 @Getter

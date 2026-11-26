@@ -28,6 +28,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+// Configura toda a seguranca da API: rotas publicas/protegidas, modo STATELESS, CORS, BCrypt e filtro JWT.
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity

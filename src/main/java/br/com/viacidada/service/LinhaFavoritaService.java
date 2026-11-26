@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+// Executa as regras de negocio das linhas de onibus favoritas (como evitar duplicidade por usuario).
 @Service
 @RequiredArgsConstructor
 public class LinhaFavoritaService {

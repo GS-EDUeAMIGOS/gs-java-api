@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
+// Faz o acesso ao banco de dados para a tabela de linhas favoritas (CRUD, Query Methods e JPQL).
 @Repository
 public interface LinhaFavoritaRepository extends JpaRepository<LinhaFavorita, Long> {
 

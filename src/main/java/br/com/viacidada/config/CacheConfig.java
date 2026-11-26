@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.List;
 
+// Configura os nomes dos caches em memoria usados para acelerar consultas repetidas da API.
 @Configuration
 public class CacheConfig {
 

@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 
+// Recebe as requisicoes HTTP (/api/usuarios) para listar e gerenciar usuarios (algumas rotas exclusivas de ADMIN).
 @RestController
 @RequestMapping("/api/usuarios")
 @RequiredArgsConstructor

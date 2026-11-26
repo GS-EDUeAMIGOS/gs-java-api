@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+// Recebe as requisicoes de cadastro (/api/auth/register) e login (/api/auth/login), devolvendo o token JWT.
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor

@@ -8,6 +8,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+// Define o formato JSON de cadastro, login e da resposta com o token JWT.
 public final class AuthDTO {
 
     private AuthDTO() {

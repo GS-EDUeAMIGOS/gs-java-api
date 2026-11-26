@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
+// Intercepta qualquer erro da API e devolve um JSON padronizado com o status HTTP correto (400, 401, 403, 404, etc.).
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 

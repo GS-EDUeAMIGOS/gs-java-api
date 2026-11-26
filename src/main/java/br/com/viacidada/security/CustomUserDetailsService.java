@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+// Busca o usuario no banco pelo e-mail para o Spring Security validar login e permissoes (roles).
 @Service
 @RequiredArgsConstructor
 public class CustomUserDetailsService implements UserDetailsService {

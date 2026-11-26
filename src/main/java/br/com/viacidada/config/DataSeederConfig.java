@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+// Popula o banco H2/test automaticamente ao subir a aplicacao com usuarios e dados iniciais de demonstracao.
 @Component
 @Profile({"h2", "test"})
 @RequiredArgsConstructor

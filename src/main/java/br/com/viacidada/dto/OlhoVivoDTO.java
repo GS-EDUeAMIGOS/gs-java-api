@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
+// Define os objetos JSON usados na integracao com a API da SPTrans Olho Vivo e rotas.
 public final class OlhoVivoDTO {
 
     private OlhoVivoDTO() {

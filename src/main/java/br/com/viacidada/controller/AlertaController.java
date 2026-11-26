@@ -19,6 +19,7 @@ import java.util.List;
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 
+// Recebe as requisicoes HTTP (/api/alertas) para listar, criar, editar e remover alertas do cidadao.
 @RestController
 @RequestMapping("/api/alertas")
 @RequiredArgsConstructor

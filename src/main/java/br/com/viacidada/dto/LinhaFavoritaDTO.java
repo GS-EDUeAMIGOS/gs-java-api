@@ -8,6 +8,7 @@ import org.springframework.hateoas.RepresentationModel;
 
 import java.time.LocalDateTime;
 
+// Define o formato JSON de entrada (Request) e saida (Response) de linhas favoritas.
 public final class LinhaFavoritaDTO {
 
     private LinhaFavoritaDTO() {

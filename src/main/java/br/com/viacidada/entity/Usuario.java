@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+// Entidade JPA que representa a tabela tb_vc_usuario (cidadaos e administradores do sistema).
 @Entity
 @Table(name = "tb_vc_usuario")
 @Getter

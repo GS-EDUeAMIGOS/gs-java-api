@@ -10,6 +10,7 @@ import org.springframework.data.jpa.domain.Specification;
 import java.util.ArrayList;
 import java.util.List;
 
+// Monta dinamicamente o filtro (WHERE) da busca de ocorrencias conforme os parametros opcionais enviados na URL.
 public final class OcorrenciaSpecification {
 
     private OcorrenciaSpecification() {

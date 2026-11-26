@@ -3,6 +3,7 @@ package br.com.viacidada.mapper;
 import br.com.viacidada.dto.*;
 import br.com.viacidada.entity.*;
 
+// Converte as entidades do banco (Entity) para objetos seguros de resposta da API (DTO), evitando vazar dados sensiveis.
 public final class DomainMapper {
 
     private DomainMapper() {

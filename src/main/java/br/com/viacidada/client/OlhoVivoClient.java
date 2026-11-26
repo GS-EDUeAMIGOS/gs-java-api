@@ -16,6 +16,7 @@ import org.springframework.web.client.RestClient;
 import java.util.List;
 import java.util.function.Supplier;
 
+// Cliente HTTP que se conecta na API externa da SPTrans (Olho Vivo) para buscar linhas, paradas e onibus.
 @Component
 @Slf4j
 public class OlhoVivoClient {

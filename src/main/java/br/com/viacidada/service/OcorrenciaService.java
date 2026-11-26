@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+// Executa as regras de negocio das ocorrencias, filtros dinamicos com Specification e controle de cache.
 @Service
 @RequiredArgsConstructor
 public class OcorrenciaService {

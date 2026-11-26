@@ -5,6 +5,7 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
+// Entidade JPA que representa a tabela tb_vc_ocorrencia (relatos de problemas e acessibilidade).
 @Entity
 @Table(name = "tb_vc_ocorrencia")
 @Getter

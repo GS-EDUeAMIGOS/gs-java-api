@@ -19,6 +19,7 @@ import java.util.List;
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 
+// Recebe as requisicoes HTTP (/api/linhas-favoritas) para gerenciar as linhas de onibus favoritas do usuario.
 @RestController
 @RequestMapping("/api/linhas-favoritas")
 @RequiredArgsConstructor

@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
 
+// Responsavel por gerar novos tokens JWT no login e ler/validar os dados (e-mail, role, expiracao) de um token.
 @Service
 public class JwtService {
 

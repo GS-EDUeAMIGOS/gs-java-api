@@ -13,6 +13,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
+// Faz o acesso ao banco de dados para a tabela de ocorrencias (CRUD, JPQL e filtros dinamicos via Specification).
 @Repository
 public interface OcorrenciaRepository extends JpaRepository<Ocorrencia, Long>, JpaSpecificationExecutor<Ocorrencia> {
 

@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+// Expoe os endpoints (/api/linhas, /api/paradas, etc.) que consultam a SPTrans Olho Vivo e geolocalizacao.
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor

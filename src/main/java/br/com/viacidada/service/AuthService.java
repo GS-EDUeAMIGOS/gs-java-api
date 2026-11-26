@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+// Executa as regras de cadastro e login: criptografa a senha com BCrypt, autentica e gera o token JWT.
 @Service
 @RequiredArgsConstructor
 public class AuthService {

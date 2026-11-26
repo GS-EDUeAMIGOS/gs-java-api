@@ -11,6 +11,7 @@ import org.springframework.hateoas.RepresentationModel;
 
 import java.time.LocalDateTime;
 
+// Define o formato JSON de entrada (Request) e saida (Response) de ocorrencias.
 public final class OcorrenciaDTO {
 
     private OcorrenciaDTO() {

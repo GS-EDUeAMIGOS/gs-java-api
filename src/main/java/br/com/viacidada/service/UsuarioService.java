@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+// Executa as regras de negocio de usuarios (listagem, busca por ID, atualizacao e remocao).
 @Service
 @RequiredArgsConstructor
 public class UsuarioService {

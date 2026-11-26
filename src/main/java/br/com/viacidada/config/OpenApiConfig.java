@@ -13,6 +13,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.List;
 
+// Configura o Swagger/OpenAPI para gerar a documentacao interativa e o botao Authorize (JWT) no navegador.
 @Configuration
 public class OpenApiConfig {
 

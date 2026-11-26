@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+// Executa as regras de negocio e transacoes das paradas favoritas do usuario.
 @Service
 @RequiredArgsConstructor
 public class ParadaFavoritaService {
