@@ -38,6 +38,7 @@ public final class ParadaFavoritaDTO {
         private Boolean possuiPisoTatil;
     }
 
+    // Herda de RepresentationModel para incluir automaticamente os links HATEOAS (_links) preenchidos pelo Controller.
     @Data
     @Builder
     @NoArgsConstructor

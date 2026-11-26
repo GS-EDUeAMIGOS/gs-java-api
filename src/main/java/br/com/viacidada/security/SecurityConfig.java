@@ -49,6 +49,8 @@ public class SecurityConfig {
     @Value("${viacidada.security.cors.allowed-origins:*}")
     private String allowedOrigins;
 
+    // Regra geral da "portaria" para todas as rotas: primeiro o jwtAuthFilter valida o token JWT e,
+    // em seguida, o authorizeHttpRequests confere as permissoes de cima para baixo (permitAll, ADMIN, CIDADAO ou authenticated).
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http

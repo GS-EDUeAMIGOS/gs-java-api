@@ -47,6 +47,7 @@ public final class OcorrenciaDTO {
         private Boolean afetaAcessibilidade;
     }
 
+    // Herda de RepresentationModel para incluir automaticamente os links HATEOAS (_links) preenchidos pelo Controller.
     @Data
     @Builder
     @NoArgsConstructor
