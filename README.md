@@ -202,10 +202,16 @@ $env:SPTRANS_TOKEN="SEU_TOKEN_AQUI"
 ### Endpoints de Documentação, Observabilidade e HATEOAS
 - **Swagger UI:** `http://localhost:8080/swagger-ui.html`
 - **OpenAPI JSON:** `http://localhost:8080/v3/api-docs`
-- **Actuator Health:** `http://localhost:8080/actuator/health`
-- **Actuator Info:** `http://localhost:8080/actuator/info`
-- **Actuator Metrics:** `http://localhost:8080/actuator/metrics`
+- **Actuator Health:** `http://localhost:8080/actuator/health` (status da aplicação, banco de dados e disco)
+- **Actuator Info:** `http://localhost:8080/actuator/info` (metadados da API definidos em `info.app`)
+- **Actuator Metrics:** `http://localhost:8080/actuator/metrics` (métricas da JVM e requisições HTTP)
+- **Actuator Caches:** `http://localhost:8080/actuator/caches` (caches em memória configurados no `CacheConfig`)
 - **H2 Console:** `http://localhost:8080/h2-console` (`jdbc:h2:mem:viacidadadb`, usuário `sa`, senha vazia)
+
+#### Onde o Spring Boot Actuator está configurado no código?
+- **Dependência (`pom.xml`):** `spring-boot-starter-actuator` habilita automaticamente as rotas de observabilidade.
+- **Exposição segura (`src/main/resources/application.yml`):** `management.endpoints.web.exposure.include: health,info,metrics,caches` expõe apenas esses 4 endpoints (mantendo rotas sensíveis como `env` e `beans` ocultas), com `show-details: always` no `health` e metadados em `info.app`.
+- **Liberação no Spring Security (`src/main/java/br/com/viacidada/security/SecurityConfig.java`):** `/actuator/**` está liberado em `.permitAll()` para permitir *healthchecks* e monitoramento sem exigir token JWT.
 
 ---
 
