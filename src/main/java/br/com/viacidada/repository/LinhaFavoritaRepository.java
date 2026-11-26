@@ -14,13 +14,13 @@ import java.util.List;
 @Repository
 public interface LinhaFavoritaRepository extends JpaRepository<LinhaFavorita, Long> {
 
-    // Query Method derivado
+    // Query Method derivado: consulta simples gerada pelo nome do metodo (lista linhas favoritas do usuario com paginacao).
     Page<LinhaFavorita> findByUsuarioId(Long usuarioId, Pageable pageable);
 
-    // Query Method derivado
+    // Query Method derivado: consulta simples para checar se o usuario ja favoritou essa linha antes de salvar.
     boolean existsByUsuarioIdAndCodigoLinha(Long usuarioId, Integer codigoLinha);
 
-    // @Query com JPQL
+    // @Query com JPQL: regra de negocio especifica para buscar por texto em letreiro, apelido ou terminal sem poluir o nome do metodo.
     @Query("SELECT lf FROM LinhaFavorita lf WHERE lf.usuario.id = :usuarioId " +
            "AND (LOWER(lf.letreiro) LIKE LOWER(CONCAT('%', :termo, '%')) " +
            "OR LOWER(lf.apelido) LIKE LOWER(CONCAT('%', :termo, '%')) " +

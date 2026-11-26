@@ -14,13 +14,13 @@ import java.util.List;
 @Repository
 public interface AlertaRepository extends JpaRepository<Alerta, Long> {
 
-    // Query Method derivado
+    // Query Method derivado: consulta simples e fixa gerada pelo nome do metodo (busca alertas do usuario com paginacao).
     Page<Alerta> findByUsuarioId(Long usuarioId, Pageable pageable);
 
-    // Query Method derivado
+    // Query Method derivado: consulta simples pelo nome do metodo para buscar apenas alertas ativos do usuario.
     List<Alerta> findByUsuarioIdAndAtivoTrue(Long usuarioId);
 
-    // @Query com JPQL
+    // @Query com JPQL: regra de negocio especifica com filtros opcionais (linha/parada) portavel entre H2 e Oracle.
     @Query("SELECT a FROM Alerta a WHERE a.ativo = true " +
            "AND (:codigoLinha IS NULL OR a.codigoLinha = :codigoLinha) " +
            "AND (:codigoParada IS NULL OR a.codigoParada = :codigoParada)")

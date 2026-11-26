@@ -15,13 +15,13 @@ import java.util.Optional;
 @Repository
 public interface UsuarioRepository extends JpaRepository<Usuario, Long> {
 
-    // Query Method derivado
+    // Query Method derivado: consulta simples gerada pelo nome do metodo para buscar usuario pelo e-mail no login.
     Optional<Usuario> findByEmailIgnoreCase(String email);
 
-    // Query Method derivado
+    // Query Method derivado: consulta simples para validar se o e-mail ja esta cadastrado antes de criar conta.
     boolean existsByEmailIgnoreCase(String email);
 
-    // @Query com JPQL
+    // @Query com JPQL: regra de negocio especifica para filtrar usuarios por perfil e mobilidade reduzida (aceita filtros opcionais).
     @Query("SELECT u FROM Usuario u WHERE (:role IS NULL OR u.role = :role) " +
            "AND (:mobilidadeReduzida IS NULL OR u.possuiMobilidadeReduzida = :mobilidadeReduzida)")
     Page<Usuario> buscarPorPerfilEAcessibilidade(
